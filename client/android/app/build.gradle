@@ -7,7 +7,7 @@ android {
         applicationId "io.github.moondancer1.tactic"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (System.getenv("TACTIC_VERSION_CODE") ?: "1") as int
+        versionCode Integer.parseInt(System.getenv("TACTIC_VERSION_CODE") ?: "1")
         versionName System.getenv("TACTIC_VERSION_NAME") ?: "0.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
