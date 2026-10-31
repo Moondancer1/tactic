@@ -45,13 +45,30 @@ export class ApiError extends Error {
   }
 }
 
+function httpHint(status: number): string {
+  if (status === 502 || status === 521 || status === 523) return 'Сервер за прокси недоступен';
+  if (status === 504 || status === 522 || status === 524) return 'Сервер не отвечает';
+  if (status === 401 || status === 403) return 'Доступ закрыт прокси (Cloudflare Access/WAF)';
+  if (status === 404) return 'Адрес не найден, проверьте URL сервера';
+  return 'Ошибка запроса';
+}
+
 async function call<T>(server: string, path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (init.token) headers.Authorization = `Bearer ${init.token}`;
-  const res = await fetch(`${server}${path}`, { ...init, headers: { ...headers, ...(init.headers as object) } });
+  let res: Response;
+  try {
+    res = await fetch(`${server}${path}`, { ...init, headers: { ...headers, ...(init.headers as object) } });
+  } catch {
+    throw new ApiError(0, 'network', `Нет связи с сервером ${server || '(адрес не указан)'}`);
+  }
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, body.error ?? 'error', body.message ?? res.statusText);
+  if (!res.ok) {
+    // HTTP/2 has no status text, and proxies (Cloudflare, Caddy) answer 4xx/5xx with HTML, not our JSON.
+    const text = body.message ?? (res.statusText || httpHint(res.status));
+    throw new ApiError(res.status, body.error ?? 'error', body.message ? text : `${text} (HTTP ${res.status})`);
+  }
   return body as T;
 }
 
