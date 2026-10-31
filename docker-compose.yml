@@ -1,0 +1,128 @@
+name: tactic
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+      - livekit
+
+  app:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /data
+      PUBLIC_URL: https://${DOMAIN}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      REDIS_URL: redis://redis:6379
+      LIVEKIT_URL: wss://${DOMAIN}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+    volumes:
+      - app_data:/data
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis_data:/data
+
+  # WebRTC SFU for PTT channels. Signalling goes through Caddy (wss://DOMAIN/rtc),
+  # media goes direct over UDP 50000-50100 (or TCP 7881, or TURN fallback).
+  livekit:
+    image: livekit/livekit-server:v1.8
+    restart: unless-stopped
+    environment:
+      # livekit-server reads its whole YAML config from this variable (--config-body)
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: info
+        rtc:
+          tcp_port: 7881
+          port_range_start: 50000
+          port_range_end: 50100
+          use_external_ip: false
+          node_ip: ${PUBLIC_IP}
+          turn_servers:
+            - host: ${DOMAIN}
+              port: 3478
+              protocol: udp
+              username: ${TURN_USER}
+              credential: ${TURN_PASSWORD}
+            - host: ${DOMAIN}
+              port: 3478
+              protocol: tcp
+              username: ${TURN_USER}
+              credential: ${TURN_PASSWORD}
+        room:
+          auto_create: true
+          empty_timeout: 300
+          max_participants: 200
+        keys:
+          ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+    ports:
+      - "7881:7881/tcp"
+      - "50000-50100:50000-50100/udp"
+
+  # TURN relay for players behind CGNAT / restrictive mobile carriers.
+  coturn:
+    image: coturn/coturn:4.6
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --fingerprint
+      - --lt-cred-mech
+      - --realm=${DOMAIN}
+      - --user=${TURN_USER}:${TURN_PASSWORD}
+      - --external-ip=${PUBLIC_IP}
+      - --min-port=49160
+      - --max-port=49200
+      - --no-tls
+      - --no-dtls
+      - --no-cli
+      - --no-multicast-peers
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --total-quota=300
+      - --stale-nonce=600
+
+volumes:
+  caddy_data:
+  caddy_config:
+  app_data:
+  redis_data:
