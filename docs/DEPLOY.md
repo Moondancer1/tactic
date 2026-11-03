@@ -68,6 +68,43 @@ curl https://tactic.example.com/api/health
 
 Ожидаемый ответ: `{"ok":true,...,"voice":true,...}`.
 
+## 4a. Установка одной командой (в т.ч. на сервер, где уже есть другие контейнеры)
+
+`scripts/install.sh` не трогает чужие контейнеры. Скрипт проверяет RAM, диск, занятые порты и DNS, генерирует `.env`, добавляет правила ufw (если ufw включён), поднимает стек и проверяет `/api/health`.
+
+```bash
+sudo ./scripts/install.sh --check tactic.example.com you@example.com   # только проверка, ничего не меняет
+sudo ./scripts/install.sh         tactic.example.com you@example.com   # установка / обновление
+```
+
+Режим выбирается сам:
+
+- **standalone**: 80/443 свободны, наш Caddy их занимает и сам получает сертификат Let's Encrypt.
+- **proxy**: 80/443 уже заняты другим прокси (nginx, traefik и т.п.). Наш Caddy слушает `127.0.0.1:8088` (порт задаёт `TACTIC_HTTP_PORT`) по HTTP. Существующий прокси терминирует TLS для поддомена и проксирует на этот порт. Для ручного запуска: `docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build`.
+
+Пример для nginx на хосте (сертификат: `certbot --nginx -d tactic.example.com`):
+
+```nginx
+server {
+    server_name tactic.example.com;
+    listen 443 ssl http2;
+    # ssl_certificate ... (certbot)
+    client_max_body_size 10m;
+    location / {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 3600s;
+    }
+}
+```
+
+Голосовые порты (7881/tcp, 50000–50100/udp, 3478, 49160–49200/udp) идут мимо прокси в обоих режимах и должны быть открыты.
+
 ## 5. Создание матча
 
 Через UI: экран входа, ссылка «HQ: create a match», ввести `ADMIN_TOKEN`.
