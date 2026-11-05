@@ -13,7 +13,7 @@ import {
 import { bearer, isAdmin, issueToken, verifyToken } from './auth.js';
 import { store } from './db.js';
 import { Denied, type Hub } from './hub.js';
-import { voiceEnabled, voiceGrants } from './voice.js';
+import { livekitUrlFor, voiceEnabled, voiceGrants } from './voice.js';
 
 const matchCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
 
@@ -129,7 +129,7 @@ export function registerRoutes(app: FastifyInstance, hub: Hub) {
     const self = await member(req, reply);
     if (!self) return;
     if (!voiceEnabled()) return fail(reply, 503, 'voice_disabled', 'Voice server not configured');
-    return voiceGrants(self);
+    return voiceGrants(self, livekitUrlFor(req.host, req.protocol));
   });
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {

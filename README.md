@@ -96,4 +96,4 @@ curl -X POST http://localhost:3000/api/admin/matches -H "Authorization: Bearer d
 - Редактировать зоны, маршруты, цели и брифинг могут только `leader` и `commander`. Метки противника, медика и опасности ставит любой игрок.
 - Squad-чат видит только своё отделение и `commander`. CMD видят командиры и HQ.
 
-Дальше: [docs/DEPLOY.md](docs/DEPLOY.md), [docs/ANDROID.md](docs/ANDROID.md), [docs/TESTING.md](docs/TESTING.md), [docs/PROTOCOL.md](docs/PROTOCOL.md).
+Дальше: [docs/LOCAL.md](docs/LOCAL.md) (запуск на своём ПК), [docs/DEPLOY.md](docs/DEPLOY.md), [docs/ANDROID.md](docs/ANDROID.md), [docs/TESTING.md](docs/TESTING.md), [docs/PROTOCOL.md](docs/PROTOCOL.md).
