@@ -145,7 +145,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" https://tactic.example.com/api/admi
 
 | Симптом | Причина |
 |---|---|
-| `NET ERR` в шапке | WebSocket не проходит через прокси: нужен `Upgrade`/`Connection` (см. пример nginx). `docker compose logs caddy app`. |
+| Красная точка и `NET…` в шапке не исчезают | WebSocket не проходит через прокси: нужен `Upgrade`/`Connection` (см. пример nginx). `docker compose logs caddy app`. |
 | `app` перезапускается | В логе `... is a public example value`: в `.env` остались значения из примера. Перегенерируйте `./scripts/gen-env.sh`. |
 | «Канал занят» при PTT | На этом канале уже говорит другой боец (рация полудуплексная). |
 | Браузер не даёт GPS/микрофон | Страница открыта не по HTTPS. |
