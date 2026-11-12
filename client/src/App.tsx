@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store';
-import { api, discoverServerUrl, loadSavedCredentials, loadSession, saveSession, type Session } from './lib/api';
+import { api, loadSession, saveSession, saveTicket, type Session } from './lib/api';
 import { socket } from './lib/socket';
 import { tracker } from './lib/tracking';
 import { voice, ptt } from './lib/voice';
@@ -21,57 +21,29 @@ export function App() {
 
   useEffect(() => {
     if (!session) return;
-    let active = true;
-
-    const tryAutoRejoin = async () => {
-      const creds = loadSavedCredentials();
-      if (!creds) {
-        logout(false);
-        return;
-      }
-      try {
-        let srv = session.server;
-        try {
-          await api.health(srv);
-        } catch {
-          const discovered = await discoverServerUrl();
-          if (discovered) srv = discovered;
-        }
-        const res = await api.login(srv, creds);
-        if (!active) return;
-        const next: Session = { ...res, server: srv };
-        saveSession(next);
-        setSession(next);
-      } catch {
-        if (active) logout(false);
-      }
-    };
-
-    // If the saved server URL is an old tunnel that rotated while the app was closed, auto-switch to the new tunnel
-    if (isNative()) {
-      void api.health(session.server).catch(async () => {
-        const discovered = await discoverServerUrl();
-        if (active && discovered && discovered !== session.server) {
-          await tryAutoRejoin();
-        }
-      });
-    }
-
+    // Revoked / expired session → back to login. Ended network → pick another one (the ticket stays valid).
     socket.onFatal = (code) => {
       if (code === 'match_ended') {
         logout(false, 'networks');
         useStore.getState().toast('Сеть завершена — выберите другую сеть', 'error');
         return;
       }
-      void tryAutoRejoin();
+      saveTicket(null);
+      logout(false, 'auth');
+      useStore.getState().toast('Сессия завершена — войдите заново', 'error');
     };
+    socket.onToken = (token) => tracker.setToken(token);
     socket.start(session.server, session.token);
     void tracker.start(session);
     void voice.connect(session);
 
     // Hardware PTT from the Android service (headset hook / media button, volume keys).
     let removeKey: (() => void) | undefined;
+    let removeAuth: (() => void) | undefined;
     if (isNative()) {
+      void Tactical.addListener('authExpired', (e) => socket.onFatal(e.status === 410 ? 'match_ended' : 'unauthorized')).then(
+        (h) => (removeAuth = () => void h.remove()),
+      );
       void Tactical.addListener('pttKey', (e) => {
         const holdCapable = e.source === 'volume' || useStore.getState().settings.pttKeyMode === 'hold';
         if (holdCapable) e.action === 'down' ? ptt.down(e.source) : ptt.up(e.source);
@@ -84,9 +56,9 @@ export function App() {
     });
 
     return () => {
-      active = false;
       unsub();
       removeKey?.();
+      removeAuth?.();
       socket.stop();
       void tracker.stop();
       void voice.disconnect();

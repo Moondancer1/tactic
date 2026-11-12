@@ -96,6 +96,14 @@ public class TacticalPlugin extends Plugin {
         if (p != null) p.notifyListeners("location", data, false);
     }
 
+    static void emitAuthExpired(int status) {
+        TacticalPlugin p = instance;
+        if (p == null) return;
+        JSObject data = new JSObject();
+        data.put("status", status);
+        p.notifyListeners("authExpired", data, true);
+    }
+
     static void emitStopped() {
         TacticalPlugin p = instance;
         if (p != null) p.notifyListeners("serviceStopped", new JSObject(), false);

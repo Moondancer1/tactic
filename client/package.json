@@ -15,7 +15,6 @@
     "@capacitor/android": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "geomagnetism": "^0.2.0",
-    "livekit-client": "^2.6.0",
     "maplibre-gl": "^5.24.0",
     "mgrs": "^2.1.0",
     "react": "^18.3.1",

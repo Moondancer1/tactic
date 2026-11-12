@@ -1,4 +1,4 @@
-// Simplified APP-6 / MIL-STD-2525 style symbols as inline SVG strings for Leaflet divIcons.
+// Simplified APP-6 / MIL-STD-2525 style symbols as inline SVG strings for MapLibre DOM markers.
 import type { Marker, PlayerState, Role } from '@tactic/shared';
 import { SQUAD_META } from '@tactic/shared';
 

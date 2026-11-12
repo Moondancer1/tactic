@@ -1,6 +1,6 @@
 # Развёртывание на VPS
 
-Цель: `https://tactic.example.com` с TLS, голосом и TURN на одном VPS.
+Цель: `https://tactic.example.com` с TLS на одном VPS. Голос идёт через тот же HTTPS/WebSocket — отдельные UDP-порты не нужны.
 
 ## 1. Требования
 
@@ -13,10 +13,6 @@
 |---|---|---|
 | 80, 443 | TCP | Caddy (HTTPS, ACME) |
 | 443 | UDP | Caddy (HTTP/3) |
-| 7881 | TCP | LiveKit ICE/TCP (fallback) |
-| 50000–50100 | UDP | LiveKit RTP медиа |
-| 3478 | UDP + TCP | Coturn |
-| 49160–49200 | UDP | Coturn relay |
 
 ## 2. Подготовка сервера
 
@@ -32,10 +28,6 @@ sudo usermod -aG docker $USER && newgrp docker
 sudo ufw allow OpenSSH
 sudo ufw allow 80,443/tcp
 sudo ufw allow 443/udp
-sudo ufw allow 7881/tcp
-sudo ufw allow 50000:50100/udp
-sudo ufw allow 3478
-sudo ufw allow 49160:49200/udp
 sudo ufw enable
 ```
 
@@ -50,7 +42,7 @@ chmod +x scripts/gen-env.sh
 ./scripts/gen-env.sh tactic.example.com you@example.com
 ```
 
-Скрипт создаёт `.env` с правами `600` и печатает `ADMIN_TOKEN`. Сохраните токен: он нужен для создания матчей. Проверьте, что `PUBLIC_IP` в `.env` совпадает с публичным IP сервера.
+Скрипт создаёт `.env` с правами `600` (случайные `JWT_SECRET`, `ADMIN_PASSWORD`, `ADMIN_TOKEN`) и печатает логин админ-панели. В production сервер не запустится с примерами из `.env.example`.
 
 ## 4. Запуск
 
@@ -66,7 +58,7 @@ Caddy получает сертификат за 10–60 секунд. Пров�
 curl https://tactic.example.com/api/health
 ```
 
-Ожидаемый ответ: `{"ok":true,...,"voice":true,...}`.
+Ожидаемый ответ: `{"ok":true,"ts":...}`.
 
 ## 4a. Установка одной командой (в т.ч. на сервер, где уже есть другие контейнеры)
 
@@ -103,21 +95,21 @@ server {
 }
 ```
 
-Голосовые порты (7881/tcp, 50000–50100/udp, 3478, 49160–49200/udp) идут мимо прокси в обоих режимах и должны быть открыты.
 
-## 5. Создание матча
+## 5. Создание сетей
 
-Через UI: экран входа, ссылка «HQ: create a match», ввести `ADMIN_TOKEN`.
+Через UI: экран входа → «Админ-панель» → логин/пароль из `.env` → «Новая сеть». Пароль сети обязателен, PIN командира генерируется автоматически и показан в списке сетей.
 
 Через API:
 
 ```bash
 curl -X POST https://tactic.example.com/api/admin/matches \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"Op. Nightfall — BLUFOR","commandPin":"4321"}'
+  -d '{"name":"Op. Nightfall — BLUFOR","password":"<пароль сети BLUFOR>"}'
+# ответ содержит commandPin
 ```
 
-Создайте отдельный матч для каждой стороны. Завершить матч: `POST /api/admin/matches/<id>/end`.
+Создайте отдельную сеть для каждой стороны и раздайте каждой стороне только её пароль. Завершить сеть: `POST /api/admin/matches/<id>/end`.
 
 ## 6. Обновление
 
@@ -153,7 +145,8 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" https://tactic.example.com/api/admi
 
 | Симптом | Причина |
 |---|---|
-| `NET ERR` в шапке, голоса нет | Закрыты UDP 50000–50100 или 7881; неверный `PUBLIC_IP`. Смотрите `docker compose logs livekit`. |
-| Голос есть по Wi-Fi, нет по LTE | Не работает TURN: проверьте 3478 и 49160–49200/udp, `docker compose logs coturn`. |
+| `NET ERR` в шапке | WebSocket не проходит через прокси: нужен `Upgrade`/`Connection` (см. пример nginx). `docker compose logs caddy app`. |
+| `app` перезапускается | В логе `... is a public example value`: в `.env` остались значения из примера. Перегенерируйте `./scripts/gen-env.sh`. |
+| «Канал занят» при PTT | На этом канале уже говорит другой боец (рация полудуплексная). |
 | Браузер не даёт GPS/микрофон | Страница открыта не по HTTPS. |
 | `Location permission denied` | Разрешите геолокацию для сайта в настройках браузера. |

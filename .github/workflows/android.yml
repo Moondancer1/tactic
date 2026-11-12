@@ -53,18 +53,23 @@ jobs:
           TACTIC_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           TACTIC_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "$TACTIC_KEYSTORE" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 secret is not set - APK not built (debug builds are never published)"
+            exit 0
+          fi
           chmod +x gradlew
-          if [ -n "$TACTIC_KEYSTORE" ]; then ./gradlew --no-daemon assembleRelease; else ./gradlew --no-daemon assembleDebug; fi
+          ./gradlew --no-daemon assembleRelease
           mkdir -p $RUNNER_TEMP/out
           find app/build/outputs/apk -name '*.apk' -exec cp {} $RUNNER_TEMP/out/tactic-${TACTIC_VERSION_NAME}.apk \;
 
       - uses: actions/upload-artifact@v4
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         with:
           name: tactic-apk
           path: ${{ runner.temp }}/out/*.apk
 
       - name: Attach to GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ env.HAS_KEYSTORE == 'true' && startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ runner.temp }}/out/*.apk

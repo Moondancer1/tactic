@@ -10,3 +10,8 @@ client/android/capacitor-cordova-android-plugins/build
 client/android/local.properties
 docs
 *.md
+.env.*
+apk/out
+apk/keystore
+*.jks
+*.keystore

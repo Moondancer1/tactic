@@ -1,6 +1,6 @@
 # Локальный запуск на своём компьютере
 
-Тест без сервера и домена: всё работает на ПК, телефоны подключаются по временному HTTPS-адресу `https://*.trycloudflare.com` (Cloudflare quick tunnel, без регистрации).
+Сервер работает на ПК, телефоны подключаются по HTTPS через Cloudflare Tunnel: свой домен (именованный туннель) или временный адрес `https://*.trycloudflare.com` (quick tunnel, без регистрации). Порты на роутере открывать не нужно.
 
 ## Windows
 
@@ -11,10 +11,11 @@
    powershell -ExecutionPolicy Bypass -File scripts\local.ps1
    ```
 
-   Первый запуск собирает образ 3–10 минут. В конце скрипт печатает адрес сервера, код тестового матча и PIN командира (`4321`).
-3. На телефоне: откройте APK (или адрес в Chrome), в поле сервера вставьте напечатанный адрес `https://….trycloudflare.com`, введите код матча.
+   При первом запуске скрипт спросит домен и токен туннеля (Enter — временный адрес) и создаст `.env.local` со **случайными** `JWT_SECRET` и паролем админа. Сборка образа занимает 3–10 минут. В конце скрипт печатает адрес сервера и логин админа.
+3. Откройте адрес → «Админ-панель» → создайте сеть (с паролем) и бойцов. PIN командира показан в списке сетей.
+4. На телефоне: APK (`https://<адрес>/tactic.apk`) или адрес в Chrome → позывной и пароль → сеть → пароль сети.
 
-Остановить:
+Остановить (база в `./data` сохраняется):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\local.ps1 -Down
@@ -22,15 +23,15 @@ powershell -ExecutionPolicy Bypass -File scripts\local.ps1 -Down
 
 ## Ограничения
 
-- Адрес туннеля новый при каждом запуске, в APK его нужно ввести заново.
-- Карта, позиции и чат работают с любого интернета. **Голос** работает, только когда телефоны в той же Wi-Fi сети, что и ПК: аудио идёт напрямую на ПК (UDP 40000–40100, TCP 7881), TURN в локальном режиме не поднимается. Если Windows спросит про доступ Docker к сети, разрешите для частных сетей.
-- Секреты в `docker-compose.local.yml` тестовые. Для игры используйте сервер: [DEPLOY.md](DEPLOY.md).
+- Временный адрес `trycloudflare.com` меняется при каждом перезапуске туннеля: в APK его нужно ввести заново. Для постоянной игры используйте свой домен (именованный туннель) или VPS: [DEPLOY.md](DEPLOY.md).
+- Caddy слушает только `127.0.0.1:8088`. Доступ по `http://<IP ПК>` из Wi-Fi закрыт намеренно: без HTTPS браузер не даёт ни GPS, ни микрофон, а APK принимает только HTTPS.
+- `.env.local` содержит секреты: держите его вне публичного git (он в `.gitignore`).
 
 ## macOS / Linux
 
 ```bash
-LAN_IP=192.168.1.50 docker compose -f docker-compose.local.yml up -d --build
+cp .env.local.example .env.local   # впишите случайные JWT_SECRET (≥32) и ADMIN_PASSWORD (≥10)
+set -a; . ./.env.local; set +a
+docker compose -f docker-compose.local.yml up -d --build
 docker compose -f docker-compose.local.yml logs tunnel | grep trycloudflare.com
 ```
-
-`LAN_IP` — IP компьютера в Wi-Fi сети.

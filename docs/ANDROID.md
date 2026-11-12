@@ -9,7 +9,7 @@ APK — тот же веб-клиент в Capacitor WebView плюс натив
 | Задача | Решение |
 |---|---|
 | GPS при выключенном экране | `TacticalService` — Foreground Service типа `location`. Он сам получает координаты через FusedLocationProvider и отправляет их в `POST /api/telemetry`. Работает, даже если WebView заморожен. |
-| Голос при выключенном экране | Тип сервиса `microphone`, `PARTIAL_WAKE_LOCK`, Wi-Fi lock `LOW_LATENCY`, приоритет рендерера WebView `IMPORTANT`. WebRTC-аудио продолжает идти. |
+| Голос при выключенном экране | Тип сервиса `microphone`, `PARTIAL_WAKE_LOCK`, Wi-Fi lock `LOW_LATENCY`, приоритет рендерера WebView `IMPORTANT`. Голосовой WebSocket продолжает работать. |
 | PTT с гарнитуры | `MediaSession` в сервисе ловит `HEADSETHOOK` / `MEDIA_PLAY_PAUSE`. Проводная гарнитура даёт down/up, значит работает удержание. Bluetooth чаще шлёт одно нажатие, значит переключение. Режим выбирается в настройках. |
 | PTT клавишей громкости | `MainActivity.dispatchKeyEvent`, только при включённом экране. Опция в настройках. |
 | Combat mode | `FLAG_KEEP_SCREEN_ON` вместо Wake Lock API. WebView не поддерживает Wake Lock API. |
@@ -18,9 +18,17 @@ APK — тот же веб-клиент в Capacitor WebView плюс натив
 
 - экран включён и игрок движется: интервал Combat (2 с) или Eco (5 с);
 - экран выключен или нет смещения больше 8 м за 30 с: интервал Idle (15 с);
-- скачок больше 25 м отправляется сразу.
+- скачок больше 25 м отправляется сразу;
+- фиксы старше 2 минут (например, «последний известный» после включения) и грубее 200 м не отправляются.
 
-Пока нет сети, сервис хранит до 30 точек и отправит их пачкой.
+Пока нет сети, сервис хранит до 30 точек и отправит их пачкой. Если сервер ответил `401` (сессия отозвана) или `410` (сеть завершена), сервис перестаёт отправлять и приложение возвращает бойца на экран входа / выбора сети.
+
+## Безопасность сборки
+
+- Публикуется только **release**, подписанный своим ключом, с R8 (debug-сборки отлаживаемы по USB).
+- `allowBackup=false` + `dataExtractionRules`: токены не уходят в облачный бэкап и не переносятся на другое устройство.
+- `network_security_config`: только HTTPS и только системные CA (пользовательский сертификат не даст сделать MITM на полевом Wi-Fi).
+- Отладка WebView отключена (`webContentsDebuggingEnabled: false`), пароль игрока на устройстве не хранится.
 
 ## Сборка через GitHub Actions (рекомендуется)
 
@@ -30,7 +38,7 @@ Workflow `.github/workflows/android.yml` собирает APK при каждо�
 2. Actions → `android-apk` → Run workflow.
 3. Скачайте артефакт `tactic-apk`.
 
-Без секретов собирается debug-APK. Он устанавливается напрямую, но подписан debug-ключом.
+Без секретов подписи APK не собирается (debug-сборки не публикуются).
 
 ### Подписанный release
 
@@ -45,7 +53,7 @@ base64 -w0 tactic.jks
 
 ## Локальная сборка
 
-На Windows проще всего папка [`apk/`](../apk/README.md): двойной клик по `apk\build-apk.cmd`, результат в `apk\out\tactic-debug.apk`.
+На Windows проще всего папка [`apk/`](../apk/README.md): двойной клик по `apk\build-apk.cmd`, результат в `apk\out\tactic.apk`. При первом запуске создаётся ключ `apk\keystore\tactic-release.jks`, пароли дописываются в `.env.local` — сохраните оба в надёжное место.
 
 Вручную: нужны Android Studio (или SDK 35) и JDK 21.
 
@@ -53,17 +61,17 @@ base64 -w0 tactic.jks
 npm install
 VITE_DEFAULT_SERVER=https://tactic.example.com npm run build -w client
 cd client && npx cap sync android && cd android
-./gradlew assembleDebug
+TACTIC_KEYSTORE=/path/tactic.jks TACTIC_KEYSTORE_PASSWORD=... TACTIC_KEY_ALIAS=tactic TACTIC_KEY_PASSWORD=... ./gradlew assembleRelease
 ```
 
-APK: `client/android/app/build/outputs/apk/debug/app-debug.apk`.
+APK: `client/android/app/build/outputs/apk/release/app-release.apk`.
 
 Сервер обязан работать по HTTPS: Android запрещает cleartext HTTP по умолчанию.
 
 ## Первая настройка на телефоне
 
 1. Установите APK, разрешите установку из неизвестных источников.
-2. Войдите в матч. Разрешите геолокацию («При использовании»), микрофон и уведомления.
+2. Войдите в сеть. Разрешите геолокацию («При использовании»), микрофон и уведомления.
 3. Настройки → BACKGROUND → **ALLOW BACKGROUND RUN**. Это отключает оптимизацию батареи.
 4. Xiaomi / Huawei / Samsung: дополнительно включите автозапуск и снимите ограничения фоновой активности для Tactic (см. dontkillmyapp.com).
 5. Перед игрой скачайте офлайн-карту: Настройки → OFFLINE MAP. Скачивается текущий слой (SAT, 2D/3D или TOPO); для каждого нужного слоя повторите.

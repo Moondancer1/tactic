@@ -3,7 +3,10 @@
 // Web:    watchPosition while moving and visible; when stationary or hidden it drops to
 //         one-shot fixes every idleIntervalMs so the GPS radio can sleep between fixes.
 // Native: the Android foreground service owns GPS and posts to /api/telemetry directly
-//         (survives a locked screen); the WebView only renders 'location' events.
+//         (survives a locked screen); the WebView only renders 'location' events — it never
+//         uploads positions itself, so there is exactly one uplink per device.
+//
+// Only real, fresh GPS fixes are shared: no IP geolocation, no re-sending an old fix as "now".
 import type { PluginListenerHandle } from '@capacitor/core';
 import { useStore, type Settings } from '../store';
 import type { Session } from './api';
@@ -13,14 +16,16 @@ import { socket } from './socket';
 
 const STATIONARY_AFTER_MS = 30_000;
 const MOVE_THRESHOLD_M = 8;
+/** Coarser than this (cell tower / Wi-Fi guess) is shown locally but never sent to the team. */
+const MAX_SHARE_ACC_M = 200;
+/** Cached fixes older than this are not "where I am now". */
+const MAX_FIX_AGE_MS = 120_000;
 
 class Tracker {
   private session: Session | null = null;
   private watchId: number | null = null;
   private pollTimer: number | undefined;
-  private heartbeatTimer: number | undefined;
   private highAccuracy = true;
-  private ipFallbackTried = false;
   private lastSent = 0;
   private lastSentPos: [number, number] | null = null;
   private anchor: [number, number] | null = null;
@@ -44,47 +49,27 @@ class Tracker {
     if (isNative()) {
       this.listeners.push(
         await Tactical.addListener('location', (l) => {
-          const now = l.ts || Date.now();
           const hdg = l.heading ?? useStore.getState().compass;
-          useStore.setState({ myPos: { lat: l.lat, lon: l.lon, acc: l.acc, heading: hdg, speed: l.speed, ts: now, tier: l.tier } });
-          if (useStore.getState().settings.shareLocation && now - this.lastSent >= 1500) {
-            this.lastSent = now;
-            this.lastSentPos = [l.lat, l.lon];
-            socket.send({
-              t: 'pos',
-              lat: l.lat,
-              lon: l.lon,
-              acc: Math.min(l.acc || 50, 99999),
-              heading: hdg == null ? null : Math.round(hdg) % 360,
-              speed: l.speed == null || Number.isNaN(l.speed) ? null : l.speed,
-              bat: this.battery,
-              ts: now,
-            });
-          }
+          useStore.setState({ myPos: { lat: l.lat, lon: l.lon, acc: l.acc, heading: hdg, speed: l.speed, ts: l.ts || Date.now(), tier: l.tier } });
         }),
       );
       await this.startNative();
+      await this.applyPower();
+      return;
     }
     this.highAccuracy = true;
-    this.ipFallbackTried = false;
     if ('geolocation' in navigator && useStore.getState().settings.shareLocation) {
-      navigator.geolocation.getCurrentPosition(
-        this.onFix,
-        () => void this.tryIpFallback(),
-        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 5_000 },
-      );
-    } else if (!('geolocation' in navigator)) {
-      void this.tryIpFallback();
+      navigator.geolocation.getCurrentPosition(this.onFix, () => {}, { enableHighAccuracy: true, maximumAge: 10_000, timeout: 10_000 });
     }
     this.reschedule();
-    window.setTimeout(() => {
-      if (!useStore.getState().myPos && useStore.getState().settings.shareLocation) {
-        void this.tryIpFallback();
-      }
-    }, 5_500);
-    clearInterval(this.heartbeatTimer);
-    this.heartbeatTimer = window.setInterval(() => this.sendHeartbeatPos(), 15_000);
     await this.applyPower();
+  }
+
+  /** New session token (sliding refresh / squad change): the native uplink must use it too. */
+  setToken(token: string) {
+    if (!this.session) return;
+    this.session = { ...this.session, token };
+    if (isNative()) void Tactical.update({ token }).catch(() => {});
   }
 
   /** Force an immediate position acquisition and broadcast to the room (e.g. when pressing ME). */
@@ -92,34 +77,13 @@ class Tracker {
     if (!useStore.getState().settings.shareLocation) {
       useStore.getState().setSettings({ shareLocation: true });
     }
-    const existing = useStore.getState().myPos;
-    if (existing) {
-      const now = Date.now();
-      this.lastSent = now;
-      socket.send({
-        t: 'pos',
-        lat: existing.lat,
-        lon: existing.lon,
-        acc: Math.min(existing.acc, 99999),
-        heading: existing.heading == null ? null : Math.round(existing.heading) % 360,
-        speed: existing.speed == null || Number.isNaN(existing.speed) ? null : existing.speed,
-        bat: this.battery,
-        ts: now,
-      });
+    if (isNative()) {
+      if (this.session) void this.startNative(); // the service re-sends its latest fix
+      return;
     }
-    this.ipFallbackTried = false;
     this.lastSent = 0;
-    if (isNative() && this.session) {
-      void this.startNative();
-    }
     if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        this.onFix,
-        () => void this.tryIpFallback(),
-        { enableHighAccuracy: this.highAccuracy, maximumAge: 5_000, timeout: 6_000 },
-      );
-    } else {
-      void this.tryIpFallback();
+      navigator.geolocation.getCurrentPosition(this.onFix, this.onGeoError, { enableHighAccuracy: this.highAccuracy, maximumAge: 5_000, timeout: 8_000 });
     }
     this.reschedule();
   }
@@ -127,8 +91,6 @@ class Tracker {
   async stop() {
     this.session = null;
     this.stopWeb();
-    clearInterval(this.heartbeatTimer);
-    this.heartbeatTimer = undefined;
     window.removeEventListener('deviceorientationabsolute', this.onOrientationAbs as EventListener);
     window.removeEventListener('deviceorientation', this.onOrientationRel as EventListener);
     document.removeEventListener('visibilitychange', this.onVisibility);
@@ -254,9 +216,8 @@ class Tracker {
 
   private onGeoError = (err: GeolocationPositionError) => {
     if (err.code === err.PERMISSION_DENIED) {
-      useStore.getState().toast('Доступ к геолокации запрещён — определение по сети', 'error');
+      useStore.getState().toast('Доступ к геолокации запрещён — ваша позиция не передаётся', 'error');
       this.stopWeb();
-      void this.tryIpFallback();
       return;
     }
     if (this.highAccuracy) {
@@ -264,108 +225,14 @@ class Tracker {
       this.highAccuracy = false;
       this.stopWeb();
       this.reschedule();
-      navigator.geolocation.getCurrentPosition(
-        this.onFix,
-        () => void this.tryIpFallback(),
-        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 8_000 },
-      );
-    } else {
-      void this.tryIpFallback();
+      navigator.geolocation.getCurrentPosition(this.onFix, () => {}, { enableHighAccuracy: false, maximumAge: 30_000, timeout: 8_000 });
     }
   };
-
-  private async tryIpFallback() {
-    if (this.ipFallbackTried || useStore.getState().myPos || !useStore.getState().settings.shareLocation) return;
-    this.ipFallbackTried = true;
-    const srv = this.session?.server || '';
-    const endpoints: Array<{ url: string; parse: (d: Record<string, unknown>) => [number, number] | null }> = [
-      ...(srv
-        ? [
-            {
-              url: `${srv}/api/geo-ip`,
-              parse: (d: Record<string, unknown>): [number, number] | null =>
-                typeof d.latitude === 'number' && typeof d.longitude === 'number' ? [d.latitude, d.longitude] : null,
-            },
-          ]
-        : []),
-      {
-        url: 'https://ipwho.is/',
-        parse: (d) => (d.success !== false && typeof d.latitude === 'number' && typeof d.longitude === 'number' ? [d.latitude, d.longitude] : null),
-      },
-      {
-        url: 'https://freeipapi.com/api/json',
-        parse: (d) => (typeof d.latitude === 'number' && typeof d.longitude === 'number' ? [d.latitude, d.longitude] : null),
-      },
-      {
-        url: 'https://ipapi.co/json/',
-        parse: (d) => (typeof d.latitude === 'number' && typeof d.longitude === 'number' ? [d.latitude, d.longitude] : null),
-      },
-    ];
-    for (const ep of endpoints) {
-      if (useStore.getState().myPos) return;
-      try {
-        const res = await fetch(ep.url, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
-        if (!res.ok) continue;
-        const data = (await res.json()) as Record<string, unknown>;
-        const coords = ep.parse(data);
-        if (coords && coords[0] !== 0 && coords[1] !== 0) {
-          if (useStore.getState().myPos) return;
-          const [lat, lon] = coords;
-          const now = Date.now();
-          useStore.setState({
-            myPos: {
-              lat,
-              lon,
-              acc: 1500,
-              heading: useStore.getState().compass,
-              speed: null,
-              ts: now,
-              tier: 'ip',
-            },
-          });
-          this.lastSent = now;
-          this.lastSentPos = [lat, lon];
-          socket.send({
-            t: 'pos',
-            lat,
-            lon,
-            acc: 1500,
-            heading: null,
-            speed: null,
-            bat: this.battery,
-            ts: now,
-          });
-          return;
-        }
-      } catch {
-        /* try next endpoint */
-      }
-    }
-  }
-
-  private sendHeartbeatPos() {
-    if (!this.session || !useStore.getState().settings.shareLocation) return;
-    const pos = useStore.getState().myPos;
-    if (!pos) return;
-    const now = Date.now();
-    if (now - this.lastSent < 12_000) return;
-    this.lastSent = now;
-    useStore.setState({ myPos: { ...pos, ts: now } });
-    socket.send({
-      t: 'pos',
-      lat: pos.lat,
-      lon: pos.lon,
-      acc: Math.min(pos.acc, 99999),
-      heading: pos.heading == null ? null : Math.round(pos.heading) % 360,
-      speed: pos.speed == null || Number.isNaN(pos.speed) ? null : pos.speed,
-      bat: this.battery,
-      ts: now,
-    });
-  }
 
   private onFix = (p: GeolocationPosition) => {
     const { latitude: lat, longitude: lon, accuracy, heading, speed } = p.coords;
     const now = Date.now();
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || now - p.timestamp > MAX_FIX_AGE_MS) return;
     const here: [number, number] = [lat, lon];
 
     const wasStationary = this.stationary;
@@ -381,6 +248,7 @@ class Tracker {
     const tier = document.hidden || this.stationary ? 'idle' : useStore.getState().settings.mode === 'combat' ? 'active' : 'eco';
     useStore.setState({ myPos: { lat, lon, acc: accuracy, heading: hdg, speed, ts: now, tier } });
 
+    if (accuracy > MAX_SHARE_ACC_M) return;
     const jumped = this.lastSentPos ? distance(this.lastSentPos, here) > 25 : true;
     if (now - this.lastSent < this.interval() - 250 && !jumped) return;
     this.lastSent = now;

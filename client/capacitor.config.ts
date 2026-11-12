@@ -7,6 +7,8 @@ const config: CapacitorConfig = {
   android: {
     // WebView origin becomes https://localhost (secure context for getUserMedia / Cache API).
     allowMixedContent: false,
+    // Never expose the WebView to chrome://inspect (localStorage holds the session token).
+    webContentsDebuggingEnabled: false,
     backgroundColor: '#0b0f0c',
   },
   server: {

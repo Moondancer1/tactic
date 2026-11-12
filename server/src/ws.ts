@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { ClientMsgSchema, type SelfInfo } from '@tactic/shared';
+import { ClientMsgSchema } from '@tactic/shared';
 import { verifyToken } from './auth.js';
-import { Denied, type Hub } from './hub.js';
+import { Denied, type Hub, type Self } from './hub.js';
 
 const HELLO_TIMEOUT_MS = 10_000;
 /** Simple token bucket per socket: burst 60, refill 30/s. */
@@ -13,8 +13,9 @@ const AUDIO_REFILL_PER_MS = 60 / 1000;
 
 export function registerWs(app: FastifyInstance, hub: Hub) {
   app.get('/ws', { websocket: true }, (socket) => {
-    let self: SelfInfo | null = null;
-    let helloPromise: Promise<SelfInfo | null> | null = null;
+    let self: Self | null = null;
+    /** Set on the first 'hello'; messages that arrive before it resolves wait for it. */
+    let hello: Promise<Self | null> | null = null;
     let tokens = BUCKET_MAX;
     let last = Date.now();
     let audioTokens = AUDIO_BUCKET_MAX;
@@ -23,6 +24,22 @@ export function registerWs(app: FastifyInstance, hub: Hub) {
     const helloTimer = setTimeout(() => {
       if (!self) socket.close(4001, 'hello timeout');
     }, HELLO_TIMEOUT_MS);
+
+    const authenticate = async (token: string): Promise<Self | null> => {
+      const verified = await verifyToken(token);
+      clearTimeout(helloTimer);
+      if (!verified) {
+        hub.sendTo(socket, { t: 'error', code: 'unauthorized', message: 'Сессия истекла — войдите заново' });
+        socket.close(4003, 'unauthorized');
+        return null;
+      }
+      if (!(await hub.attach(socket, verified))) {
+        hub.sendTo(socket, { t: 'error', code: 'match_ended', message: 'Сеть завершена — выберите другую' });
+        socket.close(4004, 'match ended');
+        return null;
+      }
+      return (self = verified);
+    };
 
     socket.on('message', async (raw, isBinary) => {
       const now = Date.now();
@@ -33,8 +50,7 @@ export function registerWs(app: FastifyInstance, hub: Hub) {
         lastAudio = now;
         if (audioTokens < 1) return;
         audioTokens -= 1;
-        const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer);
-        hub.onAudio(self, buf);
+        hub.onAudio(self, Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer));
         return;
       }
 
@@ -57,31 +73,16 @@ export function registerWs(app: FastifyInstance, hub: Hub) {
 
       if (!self) {
         if (msg.t === 'hello') {
-          helloPromise = (async () => {
-            const verified = await verifyToken(msg.token);
-            clearTimeout(helloTimer);
-            if (!verified) {
-              hub.sendTo(socket, { t: 'error', code: 'unauthorized', message: 'Сессия истекла — войдите заново' });
-              socket.close(4003, 'unauthorized');
-              return null;
-            }
-            self = verified;
-            await hub.attach(socket, verified);
-            return verified;
-          })();
-          await helloPromise;
+          if (!hello) hello = authenticate(msg.token); // a second hello must not attach the socket twice
+          await hello;
           return;
         }
-        if (helloPromise) {
-          self = await helloPromise;
-          if (!self) return;
-        } else {
-          return socket.close(4001, 'hello required');
-        }
+        if (!hello) return socket.close(4001, 'hello required');
+        if (!(await hello)) return;
       }
 
       try {
-        await hub.apply(self, msg, socket);
+        await hub.apply(self!, msg, socket);
       } catch (err) {
         if (err instanceof Denied) return hub.sendTo(socket, { t: 'error', code: err.code, message: err.message });
         app.log.error(err);

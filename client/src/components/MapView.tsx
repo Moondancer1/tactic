@@ -13,7 +13,7 @@ import { mapRef } from '../lib/mapRef';
 import { socket } from '../lib/socket';
 
 const STALE_MS = 45_000;
-// Баку по умолчанию, если геопозиция ещё не получена или отключена
+// Fallback view before the first GPS fix (the map recentres on it as soon as it arrives)
 const DEFAULT_VIEW: [number, number] = [40.4093, 49.8671];
 const LONG_PRESS_MS = 550;
 const TRP_NAMES = ['ДУБ', 'ВЫШКА', 'КУЗОВ', 'РАЗВИЛКА', 'БЕРЁЗА', 'ТРУБА', 'КРЕСТ', 'ЗАБОР', 'КОЛОДЕЦ', 'АНГАР', 'ОПОРА', 'ПНИ'];
@@ -495,9 +495,13 @@ export function MapView() {
       let btns = btn('ruler', 'RULER');
       if (m.kind === 'objective' && canEdit()) btns += btn('captured', 'CAPTURED') + btn('lost', 'LOST') + btn('active', 'ACTIVE');
       if (m.kind === 'contact') btns += btn('refresh', 'STILL THERE');
-      if (mine || canEdit() || m.kind === 'contact') btns += btn('delete', m.kind === 'contact' ? 'CLEAR' : 'DELETE');
+      // Same rule as the server: only the author or a commander removes a marker.
+      if (mine || canEdit()) btns += btn('delete', m.kind === 'contact' ? 'CLEAR' : 'DELETE');
       const upsert = (patch: Partial<Marker>) => {
-        const { createdBy: _a, createdById: _b, createdAt: _c, updatedAt: _d, expiresAt: _e, ...input } = { ...m, ...patch };
+        // Re-read at click time: the popup may have been open while someone else edited the marker.
+        const cur = store.getState().markers[id];
+        if (!cur) return;
+        const { createdBy: _a, createdById: _b, createdAt: _c, updatedAt: _d, expiresAt: _e, ...input } = { ...cur, ...patch };
         socket.send({ t: 'marker.upsert', marker: input });
       };
       openPopup(

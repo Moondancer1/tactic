@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
 import { ROLES, ROLE_META, SQUADS, SQUAD_META, type NetworkItem, type Role, type Squad } from '@tactic/shared';
 import {
-  LAST_KEY,
+  ApiError,
   api,
   defaultServer,
-  discoverServerUrl,
+  loadTicket,
   normalizeServer,
-  saveCredentials,
+  saveTicket,
+  type AdminMatchItem,
   type AdminUserItem,
   type Session,
+  type Ticket,
 } from '../lib/api';
 import { isNative } from '../lib/native';
 import { friendlyError } from '../lib/errors';
 import { requestCompassPermission } from '../lib/tracking';
 
-const ADMIN_KEY = 'tactic.adminToken';
+/** Admin credentials live only for this browser tab (sessionStorage), never on disk. */
+const ADMIN_KEY = 'tactic.admin';
 
 export function Login({
   onJoined,
@@ -23,61 +26,44 @@ export function Login({
   onJoined: (s: Session) => void;
   initialStep?: 'auth' | 'networks';
 }) {
-  const last = JSON.parse(localStorage.getItem(LAST_KEY) || '{}');
-  const [server, setServer] = useState(defaultServer());
-  const [showServer, setShowServer] = useState(isNative() && !defaultServer());
-  const [callsign, setCallsign] = useState<string>(last.callsign ?? '');
-  const [password, setPassword] = useState<string>(last.password ?? '');
-  const [step, setStep] = useState<'auth' | 'networks'>(
-    initialStep === 'networks' && last.callsign && last.password ? 'networks' : 'auth',
-  );
+  const saved = loadTicket();
+  const [server, setServer] = useState(saved?.server || defaultServer());
+  const [showServer, setShowServer] = useState(isNative() && !(saved?.server || defaultServer()));
+  const [callsign, setCallsign] = useState<string>(saved?.callsign ?? '');
+  const [password, setPassword] = useState('');
+  const [ticket, setTicket] = useState<Ticket | null>(saved);
+  const [step, setStep] = useState<'auth' | 'networks'>(initialStep === 'networks' && saved ? 'networks' : 'auth');
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
   const [pingMs, setPingMs] = useState<number | null>(null);
   const [pingOk, setPingOk] = useState<boolean | null>(null);
   const [selectedNetId, setSelectedNetId] = useState<string | null>(null);
-  const [netPassInput, setNetPassInput] = useState<string>(last.matchPassword ?? '');
-  const [manualOpen, setManualOpen] = useState(false);
-  const [manualName, setManualName] = useState('');
-  const [manualPass, setManualPass] = useState('');
+  const [netPassInput, setNetPassInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [adminOpen, setAdminOpen] = useState(false);
 
-  // Auto-discover active server URL on Android APK (or when current server is empty / unreachable)
-  useEffect(() => {
-    if (!isNative() && window.location.protocol.startsWith('http')) return;
-    let cancelled = false;
-    void (async () => {
-      const cur = normalizeServer(server);
-      if (cur) {
-        try {
-          await api.health(cur);
-          return; // Saved server is alive
-        } catch {
-          // Saved server URL is stale, discover latest
-        }
-      }
-      const latest = await discoverServerUrl();
-      if (!cancelled && latest) {
-        setServer(latest);
-        setShowServer(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  /** Ticket rejected (revoked, expired, account deleted): back to the password step. */
+  function dropTicket(err: unknown) {
+    if (err instanceof ApiError && err.status === 401) {
+      saveTicket(null);
+      setTicket(null);
+      setStep('auth');
+      setError('Сессия истекла — войдите заново');
+      return true;
+    }
+    return false;
+  }
 
-  async function refreshNetworks(srvUrl = normalizeServer(server)) {
-    if (!srvUrl) return;
+  async function refreshNetworks(t = ticket) {
+    if (!t) return;
     const t0 = performance.now();
     try {
-      const res = await api.networks(srvUrl);
-      const rtt = Math.max(1, Math.round(performance.now() - t0));
-      setPingMs(rtt);
+      const res = await api.networks(t);
+      setPingMs(Math.max(1, Math.round(performance.now() - t0)));
       setPingOk(true);
       setNetworks(res.networks);
-    } catch {
+    } catch (err) {
+      if (dropTicket(err)) return;
       setPingOk(false);
       setPingMs(null);
     }
@@ -86,45 +72,28 @@ export function Login({
   useEffect(() => {
     if (step !== 'networks') return;
     void refreshNetworks();
-    const id = setInterval(() => void refreshNetworks(), 4000);
+    const id = setInterval(() => void refreshNetworks(), 5000);
     return () => clearInterval(id);
-  }, [step, server]);
+  }, [step, ticket]);
 
   async function submitAuth(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError('');
-    let srv = normalizeServer(server);
+    const srv = normalizeServer(server);
     try {
       await requestCompassPermission();
-      const cs = callsign.trim().toUpperCase();
-      if (!srv) {
-        const latest = await discoverServerUrl();
-        if (latest) {
-          srv = latest;
-          setServer(latest);
-        }
-      }
       const t0 = performance.now();
-      let res;
-      try {
-        res = await api.verify(srv, { callsign: cs, password });
-      } catch (firstErr) {
-        const latest = await discoverServerUrl();
-        if (latest && latest !== srv) {
-          srv = latest;
-          setServer(latest);
-          res = await api.verify(srv, { callsign: cs, password });
-        } else {
-          throw firstErr;
-        }
-      }
-      const rtt = Math.max(1, Math.round(performance.now() - t0));
-      setPingMs(rtt);
+      const res = await api.verify(srv, { callsign: callsign.trim().toUpperCase(), password });
+      setPingMs(Math.max(1, Math.round(performance.now() - t0)));
       setPingOk(true);
+      const t: Ticket = { server: srv, callsign: res.user.callsign, ticket: res.ticket };
+      saveTicket(t);
+      setTicket(t);
+      setServer(srv);
       setCallsign(res.user.callsign);
+      setPassword('');
       setNetworks(res.networks);
-      saveCredentials(cs, password, last.matchId, last.matchPassword);
       setStep('networks');
     } catch (err) {
       setError(friendlyError(err, 'Ошибка авторизации'));
@@ -133,23 +102,15 @@ export function Login({
     }
   }
 
-  async function joinNetwork(opts: { matchId?: string; matchName?: string; matchPassword?: string }) {
+  async function joinNetwork(matchId: string, matchPassword?: string) {
+    if (!ticket) return;
     setBusy(true);
     setError('');
-    const srv = normalizeServer(server);
-    const cs = callsign.trim().toUpperCase();
     try {
-      const res = await api.login(srv, {
-        callsign: cs,
-        password,
-        matchId: opts.matchId,
-        matchName: opts.matchName,
-        matchPassword: opts.matchPassword,
-      });
-      saveCredentials(cs, password, res.match.id, opts.matchPassword);
-      onJoined({ ...res, server: srv });
+      const res = await api.join(ticket, { matchId, matchPassword });
+      onJoined({ ...res, server: ticket.server });
     } catch (err) {
-      setError(friendlyError(err, 'Не удалось подключиться к сети'));
+      if (!dropTicket(err)) setError(friendlyError(err, 'Не удалось подключиться к сети'));
     } finally {
       setBusy(false);
     }
@@ -188,8 +149,11 @@ export function Login({
               className="small-btn"
               onClick={() => {
                 setError('');
+                saveTicket(null);
+                setTicket(null);
                 setStep('auth');
               }}
+              title="Выйти из аккаунта"
             >
               ← {callsign}
             </button>
@@ -235,8 +199,8 @@ export function Login({
             {networks.length === 0 && (
               <div className="note" style={{ padding: '10px 0' }}>
                 {pingOk === false
-                  ? 'Нет ответа от сервера. Вы можете добавить сеть вручную ниже.'
-                  : 'Активных сетей пока нет. Создайте сеть ниже.'}
+                  ? 'Нет ответа от сервера.'
+                  : 'Активных сетей нет. Сеть создаёт администратор в админ-панели.'}
               </div>
             )}
 
@@ -262,7 +226,7 @@ export function Login({
                       onClick={() => {
                         setError('');
                         if (!net.hasPassword) {
-                          void joinNetwork({ matchId: net.id });
+                          void joinNetwork(net.id);
                         } else {
                           setSelectedNetId(isSelected ? null : net.id);
                           setNetPassInput('');
@@ -275,7 +239,7 @@ export function Login({
                           {net.name}
                         </b>
                         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                          Код: {net.code} · Бойцов: {net.onlineCount} онлайн (всего {net.memberCount})
+                          Бойцов: {net.onlineCount} онлайн (всего {net.memberCount})
                         </span>
                       </div>
                       <span className="spacer" />
@@ -287,7 +251,7 @@ export function Login({
                           e.stopPropagation();
                           setError('');
                           if (!net.hasPassword) {
-                            void joinNetwork({ matchId: net.id });
+                            void joinNetwork(net.id);
                           } else {
                             setSelectedNetId(isSelected ? null : net.id);
                             setNetPassInput('');
@@ -304,7 +268,7 @@ export function Login({
                         style={{ margin: 0, gap: 6 }}
                         onSubmit={(e) => {
                           e.preventDefault();
-                          void joinNetwork({ matchId: net.id, matchPassword: netPassInput });
+                          void joinNetwork(net.id, netPassInput);
                         }}
                       >
                         <input
@@ -325,57 +289,6 @@ export function Login({
                 );
               })}
             </div>
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-            <button
-              type="button"
-              className="link"
-              style={{ padding: 0, width: '100%', textAlign: 'left' }}
-              onClick={() => {
-                setManualOpen(!manualOpen);
-                setError('');
-              }}
-            >
-              {manualOpen ? '▼ Скрыть ручное подключение' : '+ Подключиться вручную / создать сеть с паролем'}
-            </button>
-
-            {manualOpen && (
-              <form
-                style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void joinNetwork({
-                    matchName: manualName.trim(),
-                    matchPassword: manualPass.trim() || undefined,
-                  });
-                }}
-              >
-                <label>
-                  Название или код сети
-                  <input
-                    value={manualName}
-                    onChange={(e) => setManualName(e.target.value)}
-                    placeholder="Например: Op. Nightfall или SERVER"
-                    maxLength={60}
-                    required
-                  />
-                </label>
-                <label>
-                  Пароль сети (оставьте пустым для открытой)
-                  <input
-                    type="password"
-                    value={manualPass}
-                    onChange={(e) => setManualPass(e.target.value)}
-                    placeholder="Пароль сети"
-                    maxLength={64}
-                  />
-                </label>
-                <button type="submit" className="primary" disabled={busy || !manualName.trim()}>
-                  {busy ? 'ПОДКЛЮЧЕНИЕ…' : 'ПОДКЛЮЧИТЬСЯ / СОЗДАТЬ СЕТЬ'}
-                </button>
-              </form>
-            )}
           </div>
 
           <button type="button" className="link" onClick={() => setAdminOpen(true)}>
@@ -416,7 +329,7 @@ export function Login({
           <input
             value={callsign}
             onChange={(e) => setCallsign(e.target.value.toUpperCase())}
-            placeholder="РУСЛАН / DEDSE"
+            placeholder="ПОЗЫВНОЙ"
             maxLength={16}
             autoCapitalize="characters"
             required
@@ -430,7 +343,7 @@ export function Login({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Пароль бойца"
-            minLength={3}
+            autoComplete="current-password"
             maxLength={64}
             required
           />
@@ -442,7 +355,7 @@ export function Login({
         </button>
 
         <button type="button" className="link" onClick={() => setAdminOpen(true)}>
-          Админ-панель (управление бойцами)
+          Админ-панель (бойцы и сети)
         </button>
       </form>
     </div>
@@ -450,11 +363,13 @@ export function Login({
 }
 
 function AdminPanel({ server }: { server: string }) {
-  const savedToken = localStorage.getItem(ADMIN_KEY) || '';
+  const savedToken = sessionStorage.getItem(ADMIN_KEY) || '';
   const [adminLogin, setAdminLogin] = useState(() => (savedToken.includes(':') ? savedToken.split(':')[0]! : ''));
-  const [adminPass, setAdminPass] = useState(() => (savedToken.includes(':') ? savedToken.slice(savedToken.indexOf(':') + 1) : ''));
+  const [adminPass, setAdminPass] = useState('');
+  const [token, setToken] = useState(savedToken);
   const [authed, setAuthed] = useState(false);
   const [users, setUsers] = useState<AdminUserItem[]>([]);
+  const [matches, setMatches] = useState<AdminMatchItem[]>([]);
   const [callsign, setCallsign] = useState('');
   const [password, setPassword] = useState('');
   const [squad, setSquad] = useState<Squad>('alpha');
@@ -462,79 +377,87 @@ function AdminPanel({ server }: { server: string }) {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [matchName, setMatchName] = useState('');
-  const [matchPin, setMatchPin] = useState('4321');
+  const [matchPin, setMatchPin] = useState('');
   const [matchPass, setMatchPass] = useState('');
-  const [showMatch, setShowMatch] = useState(false);
 
-  const currentToken = `${adminLogin.trim()}:${adminPass}`;
-
-  async function loadUsers(tok = currentToken) {
+  async function load(tok = token) {
     if (!tok || tok === ':') return;
     setErr('');
     try {
-      const list = await api.adminListUsers(server, tok);
-      setUsers(list);
+      const [u, m] = await Promise.all([api.adminListUsers(server, tok), api.adminListMatches(server, tok)]);
+      setUsers(u);
+      setMatches(m.filter((x) => x.active));
       setAuthed(true);
-      localStorage.setItem(ADMIN_KEY, tok);
+      setToken(tok);
+      sessionStorage.setItem(ADMIN_KEY, tok);
     } catch (e) {
       setAuthed(false);
+      sessionStorage.removeItem(ADMIN_KEY);
       setErr(friendlyError(e, 'Неверный логин или пароль администратора'));
     }
   }
 
   useEffect(() => {
-    if (savedToken.includes(':')) void loadUsers(savedToken);
+    if (savedToken.includes(':')) void load(savedToken);
   }, []);
 
-  async function saveUser(e: React.FormEvent) {
-    e.preventDefault();
+  async function run(action: () => Promise<string>) {
     setMsg('');
     setErr('');
     try {
-      const cs = callsign.trim().toUpperCase();
-      const res = await api.adminSaveUser(server, currentToken, {
-        callsign: cs,
-        password,
-        squad,
-        role,
-      });
-      setMsg(res.updated ? `Обновлён боец ${res.callsign}` : `Создан боец ${res.callsign}`);
+      setMsg(await action());
+      await load();
+    } catch (e) {
+      setErr(friendlyError(e));
+    }
+  }
+
+  const saveUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      const res = await api.adminSaveUser(server, token, { callsign: callsign.trim().toUpperCase(), password, squad, role });
       setCallsign('');
       setPassword('');
-      await loadUsers();
-    } catch (e) {
-      setErr(friendlyError(e));
-    }
-  }
+      return res.updated ? `Обновлён боец ${res.callsign} (его старые сессии сброшены)` : `Создан боец ${res.callsign}`;
+    });
+  };
 
-  async function removeUser(cs: string) {
-    setMsg('');
-    setErr('');
-    try {
-      await api.adminDeleteUser(server, currentToken, cs);
-      setMsg(`Удалён боец ${cs}`);
-      await loadUsers();
-    } catch (e) {
-      setErr(friendlyError(e));
-    }
-  }
-
-  async function createMatch() {
-    setMsg('');
-    setErr('');
-    try {
-      const m = await api.createMatch(server, currentToken, {
-        name: matchName,
-        commandPin: matchPin,
-        password: matchPass.trim() || undefined,
+  const createMatch = (e: React.FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      const m = await api.adminCreateMatch(server, token, {
+        name: matchName.trim(),
+        password: matchPass.trim(),
+        commandPin: matchPin.trim() || undefined,
       });
-      setMsg(`Создана сеть "${m.name}" (код ${m.code})`);
       setMatchName('');
       setMatchPass('');
-    } catch (e) {
-      setErr(friendlyError(e));
-    }
-  }
+      setMatchPin('');
+      return `Создана сеть «${m.name}». PIN командира: ${m.commandPin}`;
+    });
+  };
+
+  const kick = (cs: string) =>
+    void run(async () => {
+      await api.adminKickUser(server, token, cs);
+      return `${cs} отключён, сессии сброшены`;
+    });
+
+  const remove = (cs: string) => {
+    if (!window.confirm(`Удалить аккаунт ${cs}?`)) return;
+    void run(async () => {
+      await api.adminDeleteUser(server, token, cs);
+      return `Удалён боец ${cs}`;
+    });
+  };
+
+  const endMatch = (m: AdminMatchItem) => {
+    if (!window.confirm(`Завершить сеть «${m.name}»? Все бойцы будут отключены.`)) return;
+    void run(async () => {
+      await api.adminEndMatch(server, token, m.id);
+      return `Сеть «${m.name}» завершена`;
+    });
+  };
 
   if (!authed) {
     return (
@@ -542,29 +465,16 @@ function AdminPanel({ server }: { server: string }) {
         className="hq"
         onSubmit={(e) => {
           e.preventDefault();
-          void loadUsers();
+          void load(`${adminLogin.trim()}:${adminPass}`);
         }}
       >
         <label>
           Логин
-          <input
-            type="text"
-            value={adminLogin}
-            onChange={(e) => setAdminLogin(e.target.value)}
-            autoCapitalize="off"
-            autoComplete="username"
-            required
-          />
+          <input type="text" value={adminLogin} onChange={(e) => setAdminLogin(e.target.value)} autoCapitalize="off" autoComplete="username" required />
         </label>
         <label>
           Пароль
-          <input
-            type="password"
-            value={adminPass}
-            onChange={(e) => setAdminPass(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
+          <input type="password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} autoComplete="current-password" required />
         </label>
         {err && <div className="err">{err}</div>}
         <button type="submit" className="ok" disabled={!adminLogin.trim() || !adminPass}>
@@ -576,28 +486,69 @@ function AdminPanel({ server }: { server: string }) {
 
   return (
     <div className="hq">
+      {msg && <div className="note" style={{ color: 'var(--acc)' }}>{msg}</div>}
+      {err && <div className="err">{err}</div>}
+
+      <h4 style={{ margin: '4px 0 0' }}>АКТИВНЫЕ СЕТИ ({matches.length})</h4>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {matches.map((m) => (
+          <div key={m.id} className="member" style={{ padding: '6px 4px' }}>
+            <b>
+              {m.hasPassword ? '🔒' : '📡'} {m.name}
+            </b>
+            <span className="role" title="PIN командира">
+              PIN {m.commandPin}
+            </span>
+            <span className="role">{m.onlineCount} онлайн</span>
+            <span className="spacer" />
+            <button type="button" className="danger small-btn" title="Завершить сеть: все бойцы будут отключены" onClick={() => endMatch(m)}>
+              ЗАВЕРШИТЬ
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={createMatch} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <h4 style={{ margin: '8px 0 0' }}>НОВАЯ СЕТЬ (ОДНА СЕТЬ = ОДНА КОМАНДА)</h4>
+        <input placeholder="Название сети / операции" value={matchName} onChange={(e) => setMatchName(e.target.value)} maxLength={80} required />
+        <input
+          type="text"
+          placeholder="Пароль сети (мин. 4) — только для своей команды"
+          value={matchPass}
+          onChange={(e) => setMatchPass(e.target.value)}
+          minLength={4}
+          maxLength={64}
+          autoComplete="off"
+          required
+        />
+        <input
+          placeholder="PIN командира (пусто = случайный, 6 цифр)"
+          value={matchPin}
+          onChange={(e) => setMatchPin(e.target.value.replace(/\D/g, ''))}
+          inputMode="numeric"
+          maxLength={12}
+        />
+        <button className="ok" disabled={!matchName.trim() || matchPass.trim().length < 4 || (matchPin.length > 0 && matchPin.length < 6)}>
+          + СОЗДАТЬ СЕТЬ
+        </button>
+      </form>
+
       <form onSubmit={saveUser} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <h4 style={{ margin: '4px 0 0' }}>ДОБАВИТЬ / ОБНОВИТЬ БОЙЦА</h4>
+        <h4 style={{ margin: '8px 0 0' }}>ДОБАВИТЬ / ОБНОВИТЬ БОЙЦА</h4>
         <label>
           Позывной (логин)
-          <input
-            value={callsign}
-            onChange={(e) => setCallsign(e.target.value.toUpperCase())}
-            placeholder="РУСЛАН / DEDSE / 4321"
-            maxLength={16}
-            autoCapitalize="characters"
-            required
-          />
+          <input value={callsign} onChange={(e) => setCallsign(e.target.value.toUpperCase())} placeholder="ПОЗЫВНОЙ" maxLength={16} autoCapitalize="characters" required />
         </label>
         <label>
-          Пароль (мин. 3 символа)
+          Пароль (мин. 6 символов)
           <input
             type="text"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Задайте пароль бойцу"
-            minLength={3}
+            minLength={6}
             maxLength={64}
+            autoComplete="new-password"
             required
           />
         </label>
@@ -605,13 +556,7 @@ function AdminPanel({ server }: { server: string }) {
           <span>Отряд по умолчанию</span>
           <div className="seg small">
             {SQUADS.map((s) => (
-              <button
-                type="button"
-                key={s}
-                className={s === squad ? 'on' : ''}
-                style={{ ['--c' as string]: SQUAD_META[s].color }}
-                onClick={() => setSquad(s)}
-              >
+              <button type="button" key={s} className={s === squad ? 'on' : ''} style={{ ['--c' as string]: SQUAD_META[s].color }} onClick={() => setSquad(s)}>
                 {SQUAD_META[s].short}
               </button>
             ))}
@@ -630,11 +575,8 @@ function AdminPanel({ server }: { server: string }) {
         <button className="ok">+ СОХРАНИТЬ БОЙЦА</button>
       </form>
 
-      {msg && <div className="note" style={{ color: 'var(--acc)' }}>{msg}</div>}
-      {err && <div className="err">{err}</div>}
-
       <h4>АККАУНТЫ БОЙЦОВ ({users.length})</h4>
-      <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
         {users.length === 0 && <div className="note">Аккаунтов пока нет. Добавьте бойцов выше.</div>}
         {users.map((u) => (
           <div key={u.id} className="member" style={{ padding: '6px 4px' }}>
@@ -649,53 +591,34 @@ function AdminPanel({ server }: { server: string }) {
                 setCallsign(u.callsign);
                 setSquad(u.squad);
                 setRole(u.role);
-                setMsg(`Введите новый пароль для ${u.callsign} и нажмите Сохранить`);
+                setMsg(`Введите новый пароль для ${u.callsign} и нажмите «Сохранить»`);
               }}
               title="Изменить пароль / отряд"
             >
               ИЗМ.
             </button>
-            <button type="button" className="danger small-btn" onClick={() => void removeUser(u.callsign)} title="Удалить аккаунт">
+            <button type="button" className="small-btn" title="Выкинуть из всех сетей и сбросить сессии" onClick={() => kick(u.callsign)}>
+              КИК
+            </button>
+            <button type="button" className="danger small-btn" title="Удалить аккаунт" onClick={() => remove(u.callsign)}>
               ✕
             </button>
           </div>
         ))}
       </div>
 
-      <div className="row" style={{ marginTop: 8 }}>
-        <button type="button" className="link" onClick={() => setShowMatch(!showMatch)}>
-          {showMatch ? 'Скрыть настройки матча' : 'Пересоздать / новый матч'}
-        </button>
-        <span className="spacer" />
-        <button
-          type="button"
-          className="link"
-          onClick={() => {
-            localStorage.removeItem(ADMIN_KEY);
-            setAdminLogin('');
-            setAdminPass('');
-            setAuthed(false);
-          }}
-        >
-          Выйти из админ-панели
-        </button>
-      </div>
-
-      {showMatch && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input placeholder="Название сети / операции" value={matchName} onChange={(e) => setMatchName(e.target.value)} />
-          <input
-            type="password"
-            placeholder="Пароль входа в сеть (необязательно)"
-            value={matchPass}
-            onChange={(e) => setMatchPass(e.target.value)}
-          />
-          <input placeholder="PIN командира (4+)" value={matchPin} onChange={(e) => setMatchPin(e.target.value)} />
-          <button type="button" onClick={() => void createMatch()} disabled={!matchName || matchPin.length < 4}>
-            СОЗДАТЬ НОВУЮ СЕТЬ
-          </button>
-        </div>
-      )}
+      <button
+        type="button"
+        className="link"
+        onClick={() => {
+          sessionStorage.removeItem(ADMIN_KEY);
+          setToken('');
+          setAdminPass('');
+          setAuthed(false);
+        }}
+      >
+        Выйти из админ-панели
+      </button>
     </div>
   );
 }

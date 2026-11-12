@@ -23,6 +23,7 @@ jobs:
           DATA_DIR=$RUNNER_TEMP/data STATIC_DIR=../client/dist node dist/index.js &
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:3000/api/health && break; sleep 0.5; done
           curl -fsS http://127.0.0.1:3000/ | grep -q '<div id="root">'
+          node test/security-smoke.mjs http://127.0.0.1:3000
 
   docker:
     runs-on: ubuntu-latest

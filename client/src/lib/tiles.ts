@@ -83,6 +83,8 @@ let registered = false;
 export function registerCacheProtocol() {
   if (registered) return;
   registered = true;
+  // Ask the browser not to evict downloaded map tiles under storage pressure (offline maps in the field).
+  void navigator.storage?.persist?.().catch(() => false);
   maplibregl.addProtocol('cache', async (params, ctrl) => {
     const url = params.url.slice('cache://'.length);
     const isJson = params.type === 'json';

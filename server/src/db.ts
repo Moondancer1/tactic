@@ -3,12 +3,14 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import type { Briefing, ChatMsg, MatchInfo, Marker, Role, Route, Squad, Zone } from '@tactic/shared';
 import { config } from './config.js';
 
 export interface MatchRow extends MatchInfo {
   commandPin: string;
+  /** scrypt hash ("$s$salt:hex") or '' for an open network */
   password: string;
   briefing: Briefing;
 }
@@ -27,37 +29,43 @@ export interface UserRow {
   passwordHash: string;
   squad: Squad;
   role: Role;
+  tokenVersion: number;
   createdAt: number;
 }
 
-function hashPassword(password: string): string {
+// ---------- hashing (async: scrypt must not block the event loop that relays positions/voice) ----------
+const scrypt = promisify(crypto.scrypt) as (pw: string, salt: string, len: number) => Promise<Buffer>;
+
+export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.randomBytes(16).toString('hex');
-  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${derived}`;
+  return `${salt}:${(await scrypt(password, salt, 64)).toString('hex')}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [salt, hex] = stored.split(':');
   if (!salt || !hex) return false;
-  const derived = crypto.scryptSync(password, salt, 64);
+  const derived = await scrypt(password, salt, 64);
   const target = Buffer.from(hex, 'hex');
-  if (derived.length !== target.length) return false;
-  return crypto.timingSafeEqual(derived, target);
+  return derived.length === target.length && crypto.timingSafeEqual(derived, target);
 }
 
+/** Network passwords are stored as "$s$" + scrypt hash. */
+const MATCH_PW = '$s$';
+export const hashMatchPassword = async (pw: string) => (pw ? MATCH_PW + (await hashPassword(pw)) : '');
+export async function verifyMatchPassword(input: string, stored: string): Promise<boolean> {
+  if (!stored) return true;
+  return verifyPassword(input, stored.slice(MATCH_PW.length));
+}
+
+/** Random numeric command PIN. */
+export const randomPin = (digits = 6) => String(crypto.randomInt(0, 10 ** digits)).padStart(digits, '0');
+
+// ---------- schema ----------
 fs.mkdirSync(config.dataDir, { recursive: true });
 const dbPath = path.join(config.dataDir, 'tactic.sqlite');
-const usersBackupPath = path.join(config.dataDir, 'users-backup.json');
-const objectsBackupPath = path.join(config.dataDir, 'objects-backup.json');
 const db = new DatabaseSync(dbPath);
 
-// Use DELETE journal mode + FULL synchronous so every write goes directly into tactic.sqlite
-// without relying on mmap/WAL (-shm/-wal) files on Windows Docker Desktop bind mounts.
-try {
-  db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
-} catch {
-  /* ignore */
-}
+// DELETE journal (not WAL): WAL's shared-memory file is unreliable on Docker Desktop bind mounts (Windows).
 db.exec(`
 PRAGMA journal_mode = DELETE;
 PRAGMA synchronous = FULL;
@@ -69,6 +77,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   squad TEXT NOT NULL DEFAULT 'alpha',
   role TEXT NOT NULL DEFAULT 'rifleman',
+  token_version INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 
@@ -93,17 +102,6 @@ CREATE TABLE IF NOT EXISTS members (
   UNIQUE (match_id, callsign)
 );
 
-CREATE TABLE IF NOT EXISTS objects (
-  id TEXT PRIMARY KEY,
-  match_id TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('marker','zone','route')),
-  data TEXT NOT NULL,
-  expires_at INTEGER,
-  updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS objects_match ON objects(match_id, type);
-CREATE INDEX IF NOT EXISTS objects_expiry ON objects(expires_at) WHERE expires_at IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS chat (
   id TEXT PRIMARY KEY,
   match_id TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
@@ -121,11 +119,37 @@ CREATE TABLE IF NOT EXISTS tracks (
 );
 CREATE INDEX IF NOT EXISTS tracks_match_ts ON tracks(match_id, ts);
 `);
-try {
-  db.exec("ALTER TABLE matches ADD COLUMN password TEXT NOT NULL DEFAULT '';");
-} catch {
-  /* column already exists */
+
+// ---------- migrations (idempotent) ----------
+const columns = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string; pk: number }[]);
+
+if (!columns('matches').some((c) => c.name === 'password')) db.exec("ALTER TABLE matches ADD COLUMN password TEXT NOT NULL DEFAULT ''");
+if (!columns('users').some((c) => c.name === 'token_version')) db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0');
+
+// Objects are keyed per match: a global id let one match overwrite another match's objects.
+const OBJECTS_DDL = `
+CREATE TABLE objects (
+  id TEXT NOT NULL,
+  match_id TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('marker','zone','route')),
+  data TEXT NOT NULL,
+  expires_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (match_id, id)
+)`;
+const objCols = columns('objects');
+if (objCols.length === 0) {
+  db.exec(OBJECTS_DDL);
+} else if (objCols.filter((c) => c.pk > 0).length < 2) {
+  db.exec(`BEGIN;
+ALTER TABLE objects RENAME TO objects_old;
+${OBJECTS_DDL};
+INSERT OR IGNORE INTO objects SELECT id, match_id, type, data, expires_at, updated_at FROM objects_old;
+DROP TABLE objects_old;
+COMMIT;`);
 }
+db.exec(`CREATE INDEX IF NOT EXISTS objects_match ON objects(match_id, type);
+CREATE INDEX IF NOT EXISTS objects_expiry ON objects(expires_at) WHERE expires_at IS NOT NULL;`);
 
 type Row = Record<string, unknown>;
 
@@ -159,6 +183,7 @@ function toUser(r: Row): UserRow {
     passwordHash: r.password_hash as string,
     squad: (r.squad as Squad) || 'alpha',
     role: (r.role as Role) || 'rifleman',
+    tokenVersion: Number(r.token_version ?? 0),
     createdAt: r.created_at as number,
   };
 }
@@ -167,26 +192,27 @@ const q = {
   userByCallsign: db.prepare('SELECT * FROM users WHERE callsign = ? COLLATE NOCASE'),
   userById: db.prepare('SELECT * FROM users WHERE id = ?'),
   listUsers: db.prepare('SELECT id, callsign, squad, role, created_at FROM users ORDER BY created_at DESC'),
-  allUsersFull: db.prepare('SELECT * FROM users ORDER BY created_at ASC'),
   insertUser: db.prepare(
     'INSERT INTO users (id, callsign, password_hash, squad, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
   ),
-  updateUserPrefs: db.prepare('UPDATE users SET squad = ?, role = ? WHERE id = ? OR callsign = ? COLLATE NOCASE'),
-  updateUserPassword: db.prepare('UPDATE users SET password_hash = ? WHERE callsign = ? COLLATE NOCASE'),
-  deleteUser: db.prepare('DELETE FROM users WHERE callsign = ? COLLATE NOCASE'),
+  updateUserPrefs: db.prepare('UPDATE users SET squad = ?, role = ? WHERE id = ?'),
+  updateUserPassword: db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?'),
+  bumpTokenVersion: db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?'),
+  deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
 
   insertMatch: db.prepare(
     'INSERT INTO matches (id, name, code, command_pin, password, created_at) VALUES (?, ?, ?, ?, ?, ?)',
   ),
   matchById: db.prepare('SELECT * FROM matches WHERE id = ?'),
   matchByCode: db.prepare('SELECT * FROM matches WHERE code = ? AND ended_at IS NULL'),
-  matchByName: db.prepare('SELECT * FROM matches WHERE name = ? COLLATE NOCASE AND ended_at IS NULL'),
   activeMatches: db.prepare('SELECT * FROM matches WHERE ended_at IS NULL ORDER BY created_at ASC'),
   latestActiveMatch: db.prepare('SELECT * FROM matches WHERE ended_at IS NULL ORDER BY created_at DESC LIMIT 1'),
   listMatches: db.prepare('SELECT * FROM matches ORDER BY created_at DESC LIMIT 100'),
   endMatch: db.prepare('UPDATE matches SET ended_at = ? WHERE id = ?'),
-  endAllActiveMatches: db.prepare('UPDATE matches SET ended_at = ? WHERE ended_at IS NULL'),
   setBriefing: db.prepare('UPDATE matches SET briefing = ? WHERE id = ?'),
+  setMatchPin: db.prepare('UPDATE matches SET command_pin = ? WHERE id = ?'),
+  setMatchPassword: db.prepare('UPDATE matches SET password = ? WHERE id = ?'),
+  purgeMatches: db.prepare('DELETE FROM matches WHERE ended_at IS NOT NULL AND ended_at < ?'),
 
   memberByCallsign: db.prepare('SELECT * FROM members WHERE match_id = ? AND callsign = ?'),
   memberById: db.prepare('SELECT * FROM members WHERE id = ?'),
@@ -196,19 +222,22 @@ const q = {
   updateMember: db.prepare('UPDATE members SET squad = ?, role = ? WHERE id = ?'),
   moveMember: db.prepare('UPDATE members SET match_id = ?, squad = ?, role = ? WHERE id = ?'),
   deleteMember: db.prepare('DELETE FROM members WHERE id = ? AND match_id = ?'),
+  deleteMembersByCallsign: db.prepare('DELETE FROM members WHERE callsign = ? COLLATE NOCASE'),
   membersOfMatch: db.prepare('SELECT * FROM members WHERE match_id = ?'),
 
   upsertObject: db.prepare(`
     INSERT INTO objects (id, match_id, type, data, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at, updated_at = excluded.updated_at
+    ON CONFLICT(match_id, id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at, updated_at = excluded.updated_at
+    WHERE objects.type = excluded.type
   `),
   objectById: db.prepare('SELECT * FROM objects WHERE id = ? AND match_id = ?'),
   deleteObject: db.prepare('DELETE FROM objects WHERE id = ? AND match_id = ?'),
   objectsOfMatch: db.prepare('SELECT type, data FROM objects WHERE match_id = ?'),
-  allObjects: db.prepare('SELECT match_id, type, data FROM objects'),
+  countMarkersBy: db.prepare("SELECT count(*) AS c FROM objects WHERE match_id = ? AND type = 'marker' AND json_extract(data, '$.createdById') = ?"),
+  countObjects: db.prepare('SELECT count(*) AS c FROM objects WHERE match_id = ?'),
   expiredObjects: db.prepare('SELECT id, match_id FROM objects WHERE expires_at IS NOT NULL AND expires_at <= ?'),
 
-  insertChat: db.prepare('INSERT INTO chat (id, match_id, data, ts) VALUES (?, ?, ?, ?)'),
+  insertChat: db.prepare('INSERT OR IGNORE INTO chat (id, match_id, data, ts) VALUES (?, ?, ?, ?)'),
   recentChat: db.prepare('SELECT data FROM chat WHERE match_id = ? ORDER BY ts DESC LIMIT ?'),
 
   insertTrack: db.prepare('INSERT INTO tracks (match_id, member_id, lat, lon, ts) VALUES (?, ?, ?, ?, ?)'),
@@ -216,84 +245,60 @@ const q = {
     'SELECT member_id, lat, lon, ts FROM tracks WHERE match_id = ? AND ts >= ? ORDER BY ts LIMIT 200000',
   ),
   purgeChat: db.prepare('DELETE FROM chat WHERE ts < ?'),
-  purgeTracks: db.prepare('DELETE FROM tracks WHERE ts < ?'),
+  purgeTracks: db.prepare('DELETE FROM tracks WHERE ts < ? OR match_id NOT IN (SELECT id FROM matches)'),
 };
 
-function syncUsersBackup() {
-  try {
-    const all = q.allUsersFull.all();
-    fs.writeFileSync(usersBackupPath, JSON.stringify(all, null, 2), 'utf8');
-  } catch {
-    /* ignore backup write errors */
-  }
-}
+// ---------- one-time data migrations ----------
 
-function restoreUsersFromBackup() {
+/** Earlier builds mirrored every write into JSON files; import anything missing once, then retire them. */
+function importLegacyBackups() {
+  const usersFile = path.join(config.dataDir, 'users-backup.json');
+  const objectsFile = path.join(config.dataDir, 'objects-backup.json');
   try {
-    if (!fs.existsSync(usersBackupPath)) {
-      syncUsersBackup();
-      return;
-    }
-    const raw = JSON.parse(fs.readFileSync(usersBackupPath, 'utf8')) as Array<{
-      id: string;
-      callsign: string;
-      password_hash: string;
-      squad: Squad;
-      role: Role;
-      created_at: number;
-    }>;
-    if (!Array.isArray(raw)) return;
-    for (const u of raw) {
-      if (!u.callsign || !u.password_hash) continue;
-      const existing = q.userByCallsign.get(u.callsign) as Row | undefined;
-      if (!existing) {
-        q.insertUser.run(u.id, u.callsign, u.password_hash, u.squad || 'alpha', u.role || 'rifleman', u.created_at || Date.now());
+    if (fs.existsSync(usersFile)) {
+      const rows = JSON.parse(fs.readFileSync(usersFile, 'utf8')) as Row[];
+      for (const u of Array.isArray(rows) ? rows : []) {
+        if (!u.callsign || !u.password_hash || q.userByCallsign.get(u.callsign as string)) continue;
+        q.insertUser.run(u.id as string, u.callsign as string, u.password_hash as string, (u.squad as string) || 'alpha', (u.role as string) || 'rifleman', (u.created_at as number) || Date.now());
       }
+      fs.renameSync(usersFile, `${usersFile}.migrated`);
     }
-    syncUsersBackup();
-  } catch {
-    /* ignore */
-  }
-}
-
-function syncObjectsBackup(_matchId?: string) {
-  try {
-    const rows = q.allObjects.all() as Row[];
-    fs.writeFileSync(objectsBackupPath, JSON.stringify(rows, null, 2), 'utf8');
-  } catch {
-    /* ignore */
-  }
-}
-
-function restoreObjectsFromBackup(matchId: string) {
-  try {
-    if (!fs.existsSync(objectsBackupPath)) return;
-    const rows = JSON.parse(fs.readFileSync(objectsBackupPath, 'utf8')) as Array<{
-      match_id?: string;
-      type: string;
-      data: string;
-    }>;
-    if (!Array.isArray(rows)) return;
-    const now = Date.now();
-    for (const r of rows) {
-      if (!r.type || !r.data) continue;
-      const targetMatch = r.match_id || 'srv-main01';
-      if (targetMatch !== matchId) continue;
-      const parsed = JSON.parse(r.data) as { id?: string; expiresAt?: number | null };
-      if (!parsed.id) continue;
-      if (parsed.expiresAt && parsed.expiresAt <= now) continue;
-      const existing = q.objectById.get(parsed.id, matchId);
-      if (!existing) {
-        q.upsertObject.run(parsed.id, matchId, r.type, r.data, parsed.expiresAt ?? null, now);
+    if (fs.existsSync(objectsFile)) {
+      const rows = JSON.parse(fs.readFileSync(objectsFile, 'utf8')) as Row[];
+      const now = Date.now();
+      for (const r of Array.isArray(rows) ? rows : []) {
+        if (!r.match_id || !r.type || !r.data || !q.matchById.get(r.match_id as string)) continue;
+        const d = JSON.parse(r.data as string) as { id?: string; expiresAt?: number | null };
+        if (!d.id || (d.expiresAt && d.expiresAt <= now)) continue;
+        db.prepare('INSERT OR IGNORE INTO objects (id, match_id, type, data, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+          d.id, r.match_id as string, r.type as string, r.data as string, d.expiresAt ?? null, now,
+        );
       }
+      fs.renameSync(objectsFile, `${objectsFile}.migrated`);
     }
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.warn('[db] legacy backup import failed (ignored):', (e as Error).message);
   }
 }
+importLegacyBackups();
 
-restoreUsersFromBackup();
+/** Plaintext network passwords → scrypt; publicly known default PIN on active networks → random. */
+async function hardenMatches() {
+  for (const r of q.activeMatches.all() as Row[]) {
+    const m = toMatch(r);
+    if (m.password && !m.password.startsWith(MATCH_PW)) q.setMatchPassword.run(await hashMatchPassword(m.password), m.id);
+    if (m.commandPin === '4321') {
+      const pin = randomPin();
+      q.setMatchPin.run(pin, m.id);
+      console.warn(`[db] network "${m.name}": default command PIN replaced — see the admin panel for the new PIN`);
+    }
+  }
+  // Ended networks keep history only; no one can join them, so their secrets just get scrubbed.
+  db.exec(`UPDATE matches SET password = '' WHERE ended_at IS NOT NULL AND password <> '' AND password NOT LIKE '$s$%'`);
+}
+await hardenMatches();
 
+// ---------- store ----------
 export const store = {
   // ---------- users ----------
   userByCallsign(callsign: string): UserRow | null {
@@ -307,63 +312,54 @@ export const store = {
   listUsers() {
     return q.listUsers.all() as { id: string; callsign: string; squad: Squad; role: Role; created_at: number }[];
   },
-  createUser(u: { id: string; callsign: string; password: string; squad: Squad; role: Role }): UserRow {
-    q.insertUser.run(u.id, u.callsign, hashPassword(u.password), u.squad, u.role, Date.now());
-    syncUsersBackup();
+  async createUser(u: { id: string; callsign: string; password: string; squad: Squad; role: Role }): Promise<UserRow> {
+    q.insertUser.run(u.id, u.callsign, await hashPassword(u.password), u.squad, u.role, Date.now());
     return this.userById(u.id)!;
   },
-  updateUserPrefs(idOrCallsign: string, squad: Squad, role: Role) {
-    q.updateUserPrefs.run(squad, role, idOrCallsign, idOrCallsign);
-    syncUsersBackup();
+  updateUserPrefs(userId: string, squad: Squad, role: Role) {
+    q.updateUserPrefs.run(squad, role, userId);
   },
-  setUserPassword(callsign: string, password: string): boolean {
-    const ok = Number(q.updateUserPassword.run(hashPassword(password), callsign).changes) > 0;
-    syncUsersBackup();
-    return ok;
+  /** Also revokes every token the user holds. */
+  async setUserPassword(userId: string, password: string) {
+    q.updateUserPassword.run(await hashPassword(password), userId);
   },
-  deleteUser(callsign: string): boolean {
-    const ok = Number(q.deleteUser.run(callsign).changes) > 0;
-    syncUsersBackup();
-    return ok;
+  revokeTokens(userId: string) {
+    q.bumpTokenVersion.run(userId);
+  },
+  deleteUser(user: UserRow) {
+    q.deleteUser.run(user.id);
+    q.deleteMembersByCallsign.run(user.callsign);
   },
 
   // ---------- matches ----------
-  createMatch(m: { id: string; name: string; code: string; commandPin: string; password?: string }): MatchRow {
-    q.insertMatch.run(m.id, m.name, m.code, m.commandPin, m.password ?? '', Date.now());
+  async createMatch(m: { id: string; name: string; code: string; commandPin: string; password: string }): Promise<MatchRow> {
+    q.insertMatch.run(m.id, m.name, m.code, m.commandPin, await hashMatchPassword(m.password), Date.now());
     return this.match(m.id)!;
   },
   match(id: string): MatchRow | null {
     const r = q.matchById.get(id) as Row | undefined;
     return r ? toMatch(r) : null;
   },
+  /** Active (not ended) match or null. */
+  activeMatch(id: string): MatchRow | null {
+    const m = this.match(id);
+    return m && !m.endedAt ? m : null;
+  },
   activeMatchByCode(code: string): MatchRow | null {
     const r = q.matchByCode.get(code) as Row | undefined;
     return r ? toMatch(r) : null;
   },
-  activeMatchByName(name: string): MatchRow | null {
-    const r = q.matchByName.get(name) as Row | undefined;
-    return r ? toMatch(r) : null;
-  },
   activeMatches(): MatchRow[] {
-    this.defaultActiveMatch();
     return (q.activeMatches.all() as Row[]).map(toMatch);
   },
-  /** Returns the latest active match, or creates/restores a default server room if none exists. */
-  defaultActiveMatch(): MatchRow {
-    const r = q.latestActiveMatch.get() as Row | undefined;
-    if (r) return toMatch(r);
-    const anyMain = q.matchById.get('srv-main01') as Row | undefined;
-    if (anyMain) {
+  /** Make sure at least one network exists on a fresh install (an open lobby with a random PIN). */
+  ensureLobby() {
+    if (q.latestActiveMatch.get()) return;
+    if (q.matchById.get('srv-main01')) {
       q.endMatch.run(null, 'srv-main01');
-      return this.match('srv-main01')!;
+      return;
     }
-    return this.createMatch({
-      id: 'srv-main01',
-      name: 'Tactic Server',
-      code: 'SERVER',
-      commandPin: '4321',
-      password: '',
-    });
+    q.insertMatch.run('srv-main01', 'Tactic Server', 'SERVER', randomPin(), '', Date.now());
   },
   listMatches(): MatchRow[] {
     return (q.listMatches.all() as Row[]).map(toMatch);
@@ -375,7 +371,7 @@ export const store = {
     q.setBriefing.run(JSON.stringify(b), id);
   },
 
-  /** Join or re-join a match by callsign. Keeps the member id equal to user.id so tokens always match. */
+  /** Join or re-join a match by callsign. Keeps the member id equal to user.id where possible. */
   upsertMember(matchId: string, callsign: string, squad: Squad, role: Role, newId: string): MemberRow {
     const existing = q.memberByCallsign.get(matchId, callsign) as Row | undefined;
     if (existing) {
@@ -390,36 +386,39 @@ export const store = {
     q.insertMember.run(newId, matchId, callsign, squad, role, Date.now());
     return { id: newId, matchId, callsign, squad, role };
   },
+  isMember(matchId: string, memberId: string): boolean {
+    const r = q.memberById.get(memberId) as Row | undefined;
+    return !!r && r.match_id === matchId;
+  },
   updateMember(id: string, squad: Squad, role: Role) {
     q.updateMember.run(squad, role, id);
   },
   removeMember(matchId: string, id: string): boolean {
     return Number(q.deleteMember.run(id, matchId).changes) > 0;
   },
-  member(id: string): MemberRow | null {
-    const r = q.memberById.get(id) as Row | undefined;
-    return r ? toMember(r) : null;
-  },
   members(matchId: string): MemberRow[] {
     return (q.membersOfMatch.all(matchId) as Row[]).map(toMember);
   },
 
-  putObject(matchId: string, type: 'marker' | 'zone' | 'route', obj: Marker | Zone | Route) {
+  /** Returns false when the id already belongs to an object of a different type. */
+  putObject(matchId: string, type: 'marker' | 'zone' | 'route', obj: Marker | Zone | Route): boolean {
     const expires = type === 'marker' ? (obj as Marker).expiresAt : null;
-    q.upsertObject.run(obj.id, matchId, type, JSON.stringify(obj), expires, Date.now());
-    syncObjectsBackup(matchId);
+    return Number(q.upsertObject.run(obj.id, matchId, type, JSON.stringify(obj), expires, Date.now()).changes) > 0;
   },
   getObject<T>(matchId: string, id: string): { type: string; data: T } | null {
     const r = q.objectById.get(id, matchId) as Row | undefined;
     return r ? { type: r.type as string, data: JSON.parse(r.data as string) as T } : null;
   },
   deleteObject(matchId: string, id: string): boolean {
-    const ok = Number(q.deleteObject.run(id, matchId).changes) > 0;
-    syncObjectsBackup(matchId);
-    return ok;
+    return Number(q.deleteObject.run(id, matchId).changes) > 0;
+  },
+  countMarkersBy(matchId: string, memberId: string): number {
+    return Number((q.countMarkersBy.get(matchId, memberId) as Row).c);
+  },
+  countObjects(matchId: string): number {
+    return Number((q.countObjects.get(matchId) as Row).c);
   },
   objects(matchId: string) {
-    restoreObjectsFromBackup(matchId);
     const markers: Marker[] = [];
     const zones: Zone[] = [];
     const routes: Route[] = [];
@@ -444,8 +443,9 @@ export const store = {
     return rows;
   },
 
-  addChat(matchId: string, msg: ChatMsg) {
-    q.insertChat.run(msg.id, matchId, JSON.stringify(msg), msg.ts);
+  /** False when a message with this id was already stored (offline outbox replay). */
+  addChat(matchId: string, msg: ChatMsg): boolean {
+    return Number(q.insertChat.run(msg.id, matchId, JSON.stringify(msg), msg.ts).changes) > 0;
   },
   recentChat(matchId: string, limit = config.chatHistory): ChatMsg[] {
     return (q.recentChat.all(matchId, limit) as Row[]).map((r) => JSON.parse(r.data as string)).reverse();
@@ -458,9 +458,11 @@ export const store = {
     return q.tracksOfMatch.all(matchId, since) as { member_id: string; lat: number; lon: number; ts: number }[];
   },
 
+  /** Drops chat/tracks older than the retention window and networks that ended before it. */
   purge(retentionDays: number) {
     const cutoff = Date.now() - retentionDays * 86_400_000;
     q.purgeChat.run(cutoff);
+    q.purgeMatches.run(cutoff);
     q.purgeTracks.run(cutoff);
   },
 

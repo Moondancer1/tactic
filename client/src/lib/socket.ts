@@ -1,7 +1,29 @@
 // Tactical WebSocket: hello/auth, binary PTT audio transport, auto-reconnect with backoff, offline outbox.
 import { PROTOCOL_VERSION, type ClientMsg, type ServerMsg } from '@tactic/shared';
 import { useStore } from '../store';
-import { discoverServerUrl, updateSessionSelf, wsUrl } from './api';
+import { updateSessionSelf, wsUrl } from './api';
+
+/** Client-side id (fits the server's [A-Za-z0-9_-]{4,40}): makes outbox replays idempotent. */
+function newId(): string {
+  const b = crypto.getRandomValues(new Uint8Array(10));
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/** Give every create-type message an id before it can be queued, so a resend never duplicates it. */
+function withId(msg: Outgoing): Outgoing {
+  switch (msg.t) {
+    case 'chat':
+      return msg.id ? msg : { ...msg, id: newId() };
+    case 'marker.upsert':
+      return msg.marker.id ? msg : { ...msg, marker: { ...msg.marker, id: newId() } };
+    case 'zone.upsert':
+      return msg.zone.id ? msg : { ...msg, zone: { ...msg.zone, id: newId() } };
+    case 'route.upsert':
+      return msg.route.id ? msg : { ...msg, route: { ...msg.route, id: newId() } };
+    default:
+      return msg;
+  }
+}
 
 type Outgoing = Exclude<ClientMsg, { t: 'hello' }>;
 
@@ -18,7 +40,9 @@ class TacticalSocket {
   /** Messages that must not be lost while offline (chat, markers...). Positions are latest-only. */
   private outbox: Outgoing[] = [];
   private lastPos: Outgoing | null = null;
-  onFatal: (code: string) => void = () => {};
+  onFatal: (code: 'unauthorized' | 'match_ended') => void = () => {};
+  /** Fresh session token from the server (sliding expiry, squad/role change). */
+  onToken: (token: string) => void = () => {};
   onBinary: (data: Uint8Array) => void = () => {};
 
   start(server: string, token: string) {
@@ -42,7 +66,8 @@ class TacticalSocket {
     this.outbox = [];
   }
 
-  send(msg: Outgoing) {
+  send(m: Outgoing) {
+    const msg = withId(m);
     if (this.ws?.readyState === WebSocket.OPEN && this.authed) {
       this.ws.send(JSON.stringify(msg));
       return;
@@ -117,7 +142,10 @@ class TacticalSocket {
         this.ping();
         this.pingTimer = window.setInterval(() => this.ping(), 10_000);
       } else if (msg.t === 'self') {
-        if (msg.token) this.token = msg.token;
+        if (msg.token) {
+          this.token = msg.token;
+          this.onToken(msg.token);
+        }
         updateSessionSelf(msg.self, msg.token);
       }
       useStore.getState().apply(msg);
@@ -141,14 +169,6 @@ class TacticalSocket {
   private scheduleReconnect() {
     if (this.stopped) return;
     clearTimeout(this.reconnectTimer);
-    if (this.backoff >= 2_000) {
-      void discoverServerUrl().then((latest) => {
-        if (!this.stopped && latest && latest !== this.server) {
-          this.stopped = true;
-          this.onFatal('server_changed');
-        }
-      });
-    }
     const delay = this.backoff + Math.random() * 300;
     this.backoff = Math.min(this.backoff * 2, 8_000);
     this.reconnectTimer = window.setTimeout(() => this.open(), delay);

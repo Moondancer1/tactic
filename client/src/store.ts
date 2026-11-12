@@ -214,6 +214,9 @@ export const useStore = create<State>((set, get) => ({
         set({ voice: { ...s.voice, rx } });
         return;
       }
+      case 'voice.busy':
+        get().toast(`Канал занят: говорит ${msg.callsign}`, 'error');
+        return;
       case 'marker':
         set({ markers: { ...get().markers, [msg.marker.id]: msg.marker } });
         return;

@@ -7,6 +7,13 @@ Set-Location (Join-Path $PSScriptRoot '..')
 
 function Fail($msg) { Write-Host $msg -ForegroundColor Red; exit 1 }
 
+# Cryptographically random URL-safe secret (Get-Random is neither random enough nor long enough).
+function New-Secret([int]$bytes) {
+  $b = New-Object byte[] $bytes
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+  return ([Convert]::ToBase64String($b) -replace '[+/=]', '').Substring(0, [Math]::Min(64, [int]($bytes * 1.3)))
+}
+
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   Fail 'Docker not found. Install Docker Desktop: https://www.docker.com/products/docker-desktop/'
 }
@@ -23,9 +30,9 @@ if (-not (Test-Path $envFile)) {
   if ($pubUrl.Trim()) {
     $cfToken = Read-Host 'Enter your Cloudflare Tunnel token (or press Enter if not using named tunnel)'
   }
-  $admPass = Read-Host 'Set Admin Panel password (press Enter for default: A123456a)'
-  if (-not $admPass.Trim()) { $admPass = 'A123456a' }
-  $jwt = -join ((48..57) + (97..102) | Get-Random -Count 48 | ForEach-Object { [char]$_ })
+  $admPass = Read-Host 'Set Admin Panel password, min 10 chars (press Enter to generate a random one)'
+  if ($admPass.Trim().Length -lt 10) { $admPass = New-Secret 12 }
+  $jwt = New-Secret 48
   $lines = @(
     "PUBLIC_URL=$($pubUrl.Trim())",
     "CLOUDFLARE_TUNNEL_TOKEN=$($cfToken.Trim())",
@@ -51,17 +58,9 @@ foreach ($line in (Get-Content $envFile -ErrorAction SilentlyContinue)) {
 $compose = @('compose', '-f', 'docker-compose.local.yml')
 
 if ($Down) {
-  docker @compose stop app redis livekit caddy
+  docker @compose stop app redis caddy
   Write-Host 'Server stopped (tunnel and ./data database preserved).' -ForegroundColor Yellow
   exit 0
-}
-
-$route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-  Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1
-if ($route) {
-  $lan = (Get-NetIPAddress -InterfaceIndex $route.InterfaceIndex -AddressFamily IPv4 | Select-Object -First 1).IPAddress
-  $env:LAN_IP = $lan
-  Write-Host "LAN IP: $lan"
 }
 
 if ($env:CLOUDFLARE_TUNNEL_TOKEN) {
@@ -74,7 +73,7 @@ if (-not (Test-Path 'data')) { New-Item -ItemType Directory -Path 'data' | Out-N
 if (-not (Test-Path 'apk\out')) { New-Item -ItemType Directory -Force -Path 'apk\out' | Out-Null }
 
 Write-Host 'Building and starting containers...' -ForegroundColor Cyan
-docker @compose up -d --build app redis caddy tunnel
+docker @compose up -d --build --remove-orphans app redis caddy tunnel
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed, check output above.' }
 
 Write-Host 'Waiting for server healthcheck...'

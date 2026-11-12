@@ -14,7 +14,6 @@ export const config = {
   port: Number(env('PORT', '3000')),
   host: env('HOST', '0.0.0.0'),
   dataDir: path.resolve(env('DATA_DIR', './data')),
-  publicUrl: env('PUBLIC_URL', 'http://localhost:3000'),
   jwtSecret: env('JWT_SECRET', isProd ? undefined : 'dev-insecure-jwt-secret-change-me-0000000000'),
   /** Admin panel login. In production there is NO default password: set ADMIN_PASSWORD in .env. */
   adminUser: env('ADMIN_USER', 'admin'),
@@ -22,11 +21,7 @@ export const config = {
   /** Optional machine token for scripts / webhooks (Authorization: Bearer <ADMIN_TOKEN>). */
   adminToken: process.env.ADMIN_TOKEN || '',
   redisUrl: process.env.REDIS_URL || '',
-  livekit: {
-    url: process.env.LIVEKIT_URL || '',
-    apiKey: process.env.LIVEKIT_API_KEY || '',
-    apiSecret: process.env.LIVEKIT_API_SECRET || '',
-  },
+  /** Extra origins allowed to call the API cross-origin (the APK's https://localhost is always allowed). */
   corsOrigins: (process.env.CORS_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
@@ -41,9 +36,27 @@ export const config = {
   chatHistory: 200,
 };
 
-if (config.isProd && config.jwtSecret.length < 32) {
-  throw new Error('JWT_SECRET must be at least 32 chars');
-}
-if (config.isProd && config.adminPassword && config.adminPassword.length < 8) {
-  throw new Error('ADMIN_PASSWORD must be at least 8 chars');
+/** Values that are published in this repository's examples and must never run in production. */
+const PUBLIC_DEFAULTS = [
+  'dev-insecure-jwt-secret-change-me-0000000000',
+  'local-only-jwt-secret-0123456789abcdef0123456789abcdef',
+  'change-me-64-hex',
+  'change-me-random-jwt-secret-at-least-32-chars',
+  'change-me-admin-password',
+  'change-me-admin-pass',
+  'change-me-admin-token',
+  'A123456a',
+  'admin',
+];
+
+if (config.isProd) {
+  if (config.jwtSecret.length < 32) throw new Error('JWT_SECRET must be at least 32 chars');
+  if (config.adminPassword && config.adminPassword.length < 10) throw new Error('ADMIN_PASSWORD must be at least 10 chars');
+  for (const [name, v] of [
+    ['JWT_SECRET', config.jwtSecret],
+    ['ADMIN_PASSWORD', config.adminPassword],
+    ['ADMIN_TOKEN', config.adminToken],
+  ] as const) {
+    if (v && PUBLIC_DEFAULTS.includes(v)) throw new Error(`${name} is a public example value — generate a real secret (scripts/gen-env.sh or scripts/local.ps1)`);
+  }
 }

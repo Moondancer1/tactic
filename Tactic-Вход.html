@@ -89,9 +89,10 @@
         }
         form.addEventListener('submit', function (e) {
           e.preventDefault();
-          const raw = (input.value || '').trim().replace(/\/+$/, '');
-          if (!/^https?:\/\//i.test(raw)) {
-            status.textContent = 'Введите корректный URL (с https:// или http://)';
+          let raw = (input.value || '').trim().replace(/\/+$/, '').replace(/^http:\/\//i, 'https://');
+          if (!/^https:\/\//i.test(raw)) raw = 'https://' + raw;
+          if (!/^https:\/\/[^\s/]+/i.test(raw)) {
+            status.textContent = 'Введите адрес сервера, например https://tactic.example.com';
             return;
           }
           localStorage.setItem(KEY, raw);

@@ -76,13 +76,17 @@ public class TacticalService extends Service {
     private static final long STATIONARY_AFTER_MS = 30_000;
     private static final float MOVE_THRESHOLD_M = 8f;
     private static final int MAX_PENDING = 30;
+    /** Cached / last-known fixes older than this are not "where I am now" and are never sent. */
+    private static final long MAX_FIX_AGE_MS = 120_000;
+    /** Coarser fixes (cell tower / Wi-Fi guess) are shown locally but never sent to the team. */
+    private static final float MAX_SHARE_ACC_M = 200f;
 
     static volatile boolean running = false;
     private static volatile TacticalService current;
 
     // config
     private String server = "";
-    private String token = "";
+    private volatile String token = "";
     private String mode = "eco";
     private long activeMs = 2000, ecoMs = 5000, idleMs = 15000;
     private boolean share = true;
@@ -423,7 +427,10 @@ public class TacticalService extends Service {
 
     private void onLocation(Location l) {
         long now = SystemClock.elapsedRealtime();
-        float acc = l.hasAccuracy() ? l.getAccuracy() : 50f;
+        long ageMs = (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1_000_000L;
+        if (ageMs > MAX_FIX_AGE_MS) return; // e.g. getLastKnownLocation() from hours ago / another city
+        if (l.getLatitude() == 0d && l.getLongitude() == 0d) return;
+        float acc = l.hasAccuracy() ? l.getAccuracy() : 9999f;
         float threshold = Math.max(MOVE_THRESHOLD_M, Math.min(acc, 30f));
         if (anchor == null || l.distanceTo(anchor) > threshold) {
             anchor = l;
@@ -447,7 +454,7 @@ public class TacticalService extends Service {
         ev.put("tier", tier);
         TacticalPlugin.emitLocation(ev);
 
-        if (due || jumped) {
+        if ((due || jumped) && acc <= MAX_SHARE_ACC_M) {
             lastSentAt = now;
             lastSent = l;
             try {
@@ -504,13 +511,20 @@ public class TacticalService extends Service {
                     os.write(body);
                 }
                 int code = c.getResponseCode();
-                if (code < 500) {
-                    // 2xx: delivered. 4xx: will never succeed (expired token / bad data) - drop.
+                if (code == 401 || code == 410) {
+                    // Session revoked / network ended: stop uploading and let the app send the user back to login.
+                    Log.w(TAG, "telemetry rejected: " + code);
+                    synchronized (pending) {
+                        pending.clear();
+                    }
+                    if (auth.equals("Bearer " + token)) token = "";
+                    TacticalPlugin.emitAuthExpired(code);
+                } else if (code < 500) {
+                    // 2xx: delivered. Other 4xx: will never succeed (bad data) - drop.
                     synchronized (pending) {
                         for (int k = 0; k < batch.length() && !pending.isEmpty(); k++) pending.removeFirst();
                     }
                 }
-                if (code == 401) Log.w(TAG, "telemetry unauthorized; re-join required");
             } catch (Exception e) {
                 Log.d(TAG, "telemetry failed: " + e.getMessage());
             } finally {

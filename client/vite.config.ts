@@ -1,11 +1,38 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+
+/**
+ * Content-Security-Policy for production builds (web and APK). Map markers are built with innerHTML, so
+ * script execution is pinned to the app's own files: an escaping slip can never run injected script.
+ * Not applied in dev, where Vite injects inline scripts for hot reload.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "worker-src 'self' blob:",
+  'child-src blob:',
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self' https: wss:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
+  "media-src 'self' blob: data:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+].join('; ');
+
+const cspPlugin: Plugin = {
+  name: 'tactic-csp',
+  apply: 'build',
+  transformIndexHtml: (html) => html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`),
+};
 
 // In dev the Vite server proxies API/WS to the local backend on :3000.
 export default defineConfig({
   plugins: [
     react(),
+    cspPlugin,
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
@@ -27,7 +54,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/ws/, /^\/rtc/],
+        navigateFallbackDenylist: [/^\/api/, /^\/ws/, /^\/tactic\.apk/],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),

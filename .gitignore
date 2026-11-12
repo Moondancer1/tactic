@@ -23,3 +23,6 @@ client/android/capacitor-cordova-android-plugins/build/
 
 # APK build output
 apk/out/
+
+# Android release signing key (never commit)
+apk/keystore/

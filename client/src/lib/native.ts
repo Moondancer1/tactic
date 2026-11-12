@@ -44,6 +44,8 @@ interface TacticalPlugin {
   addListener(event: 'location', cb: (l: NativeLocation) => void): Promise<PluginListenerHandle>;
   addListener(event: 'pttKey', cb: (e: PttKeyEvent) => void): Promise<PluginListenerHandle>;
   addListener(event: 'serviceStopped', cb: () => void): Promise<PluginListenerHandle>;
+  /** Telemetry was rejected (token revoked / match ended): the service stopped uploading. */
+  addListener(event: 'authExpired', cb: (e: { status: number }) => void): Promise<PluginListenerHandle>;
 }
 
 export const isNative = () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';

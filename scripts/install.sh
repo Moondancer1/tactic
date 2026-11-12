@@ -108,15 +108,10 @@ check_free() { # port proto label
     if ours_running; then ok "$3 $1 in use (probably ours)"; else problem "$3 $1 already in use: $(listener "$1")"; fi
   else ok "$3 $1 free"; fi
 }
-check_free 7881 t "tcp"
-check_free 3478 u "udp"
-check_free 3478 t "tcp"
-for p in 50000 50050 50100 49160 49200; do port_busy "$p" u && problem "udp $p in use: $(listener "$p")"; done
-ok "udp 50000-50100 / 49160-49200 checked"
 [ "$MODE" = proxy ] && check_free "$HTTP_PORT" t "tcp (local caddy)"
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-  echo "  ufw is active — rules will be added for voice ports"
+  echo "  ufw is active — rules will be added for 80/443"
 else
   echo "  ufw inactive — open the ports in the hoster's firewall/security group if it has one"
 fi
@@ -155,18 +150,10 @@ if [ ! -f .env ]; then
 else
   ok ".env exists, keeping secrets"
 fi
-if [ -n "$PUBLIC_IP_DETECTED" ] && [ "${PUBLIC_IP:-}" != "$PUBLIC_IP_DETECTED" ]; then
-  warn "PUBLIC_IP in .env (${PUBLIC_IP:-empty}) differs from detected $PUBLIC_IP_DETECTED — fixing"
-  sed -i "s/^PUBLIC_IP=.*/PUBLIC_IP=$PUBLIC_IP_DETECTED/" .env
-fi
 grep -q '^TACTIC_MODE=' .env && sed -i "s/^TACTIC_MODE=.*/TACTIC_MODE=$MODE/" .env || echo "TACTIC_MODE=$MODE" >> .env
 grep -q '^TACTIC_HTTP_PORT=' .env || echo "TACTIC_HTTP_PORT=$HTTP_PORT" >> .env
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-  ufw allow 7881/tcp >/dev/null
-  ufw allow 50000:50100/udp >/dev/null
-  ufw allow 3478 >/dev/null
-  ufw allow 49160:49200/udp >/dev/null
   [ "$MODE" = standalone ] && { ufw allow 80,443/tcp >/dev/null; ufw allow 443/udp >/dev/null; }
   ok "ufw rules added"
 fi
@@ -189,6 +176,6 @@ done
 [ -n "${out:-}" ] || warn "No healthy answer yet; see: ${COMPOSE[*]} logs --tail=100 caddy app"
 
 echo
-grn "Done. ADMIN_TOKEN (for creating matches): $(grep '^ADMIN_TOKEN=' .env | cut -d= -f2)"
+grn "Done. Admin panel: https://$DOMAIN -> Админ-панель, login $(grep '^ADMIN_USER=' .env | cut -d= -f2) / password in .env (ADMIN_PASSWORD)"
 [ "$MODE" = proxy ] && yel "Remember to point the existing proxy at http://127.0.0.1:$HTTP_PORT for $DOMAIN."
 exit 0

@@ -1,19 +1,16 @@
-import type {
-  AuthRequest,
-  AuthVerifyResponse,
-  JoinRequest,
-  JoinResponse,
-  NetworkItem,
-  Role,
-  SelfInfo,
-  Squad,
-  VoiceInfo,
-} from '@tactic/shared';
+import type { AuthVerifyResponse, JoinMatchRequest, JoinResponse, NetworkItem, Role, SelfInfo, Squad } from '@tactic/shared';
 import { isNative } from './native';
 import { friendlyMessage } from './errors';
 
 export interface Session extends JoinResponse {
   server: string;
+}
+
+/** Proof of a verified account (step 1 of login). Replaces storing the password on the device. */
+export interface Ticket {
+  server: string;
+  callsign: string;
+  ticket: string;
 }
 
 export interface AdminUserItem {
@@ -24,9 +21,28 @@ export interface AdminUserItem {
   created_at: number;
 }
 
+export interface AdminMatchItem {
+  id: string;
+  name: string;
+  code: string;
+  commandPin: string;
+  hasPassword: boolean;
+  onlineCount: number;
+  active: boolean;
+  createdAt: number;
+  endedAt: number | null;
+}
+
 const SESSION_KEY = 'tactic.session';
 const SERVER_KEY = 'tactic.server';
-export const LAST_KEY = 'tactic.lastJoin';
+const TICKET_KEY = 'tactic.ticket';
+// Older builds stored the plaintext password here: wipe it on first run of this version.
+try {
+  localStorage.removeItem('tactic.lastJoin');
+  localStorage.removeItem('tactic.adminToken');
+} catch {
+  /* storage unavailable */
+}
 
 /**
  * Server baked into the APK at build time (apk/build-apk.ps1 -> VITE_DEFAULT_SERVER = PUBLIC_URL from .env.local).
@@ -34,99 +50,31 @@ export const LAST_KEY = 'tactic.lastJoin';
  */
 export const DEFAULT_SERVER_URL = ((import.meta.env.VITE_DEFAULT_SERVER as string | undefined) ?? '').trim().replace(/\/+$/, '');
 
-/** Optional ntfy.sh topic for auto-discovery of rotating quick-tunnel URLs (VITE_DISCOVERY_TOPIC). Disabled when empty. */
-const DISCOVERY_TOPIC = ((import.meta.env.VITE_DISCOVERY_TOPIC as string | undefined) ?? '').trim();
-
 /** Web build talks to its own origin; the APK uses the saved server or the one baked in at build time. */
 export function defaultServer(): string {
-  if (!isNative() && window.location.protocol.startsWith('http')) {
-    return window.location.origin;
-  }
-  const saved = localStorage.getItem(SERVER_KEY);
-  if (saved) return saved;
-  if (DEFAULT_SERVER_URL) return DEFAULT_SERVER_URL;
-  return isNative() ? '' : window.location.origin;
+  if (!isNative() && window.location.protocol.startsWith('http')) return window.location.origin;
+  return localStorage.getItem(SERVER_KEY) || DEFAULT_SERVER_URL;
 }
 
-/**
- * Optional: discovers the current server URL published to ntfy.sh (only when VITE_DISCOVERY_TOPIC is set,
- * useful with temporary *.trycloudflare.com tunnels). Returns null when disabled.
- */
-export async function discoverServerUrl(): Promise<string | null> {
-  if (!DISCOVERY_TOPIC) return null;
-  try {
-    const res = await fetch(`https://ntfy.sh/${encodeURIComponent(DISCOVERY_TOPIC)}/raw?poll=1&since=168h`, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    const text = await res.text();
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => /^https?:\/\/[^\s]+$/i.test(l));
-    if (!lines.length) return null;
-    const latest = normalizeServer(lines[lines.length - 1]!);
-    if (latest) localStorage.setItem(SERVER_KEY, latest);
-    return latest;
-  } catch {
-    return null;
-  }
-}
-
-export function loadSavedCredentials(): {
-  callsign: string;
-  password: string;
-  matchId?: string;
-  matchPassword?: string;
-} | null {
-  try {
-    const raw = JSON.parse(localStorage.getItem(LAST_KEY) || '{}');
-    if (raw.callsign && raw.password) {
-      return {
-        callsign: String(raw.callsign),
-        password: String(raw.password),
-        ...(raw.matchId ? { matchId: String(raw.matchId) } : {}),
-        ...(raw.matchPassword ? { matchPassword: String(raw.matchPassword) } : {}),
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveCredentials(
-  callsign: string,
-  password: string,
-  matchId?: string,
-  matchPassword?: string,
-) {
-  localStorage.setItem(
-    LAST_KEY,
-    JSON.stringify({
-      callsign,
-      password,
-      ...(matchId ? { matchId } : {}),
-      ...(matchPassword ? { matchPassword } : {}),
-    }),
-  );
-}
-
+/** HTTPS only: credentials and positions must never cross a field Wi-Fi in clear text. */
 export function normalizeServer(url: string): string {
   let u = url.trim().replace(/\/+$/, '');
-  if (u && !/^https?:\/\//.test(u)) u = `https://${u}`;
+  if (!u) return '';
+  u = u.replace(/^http:\/\//i, 'https://');
+  if (!/^https:\/\//i.test(u)) u = `https://${u}`;
   return u;
 }
 
-export function loadSession(): Session | null {
+function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    return raw ? (JSON.parse(raw) as Session) : null;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     return null;
   }
 }
+
+export const loadSession = () => readJson<Session>(SESSION_KEY);
 
 export function saveSession(s: Session | null) {
   if (s) {
@@ -137,8 +85,13 @@ export function saveSession(s: Session | null) {
 
 export function updateSessionSelf(self: SelfInfo, token?: string) {
   const cur = loadSession();
-  if (!cur) return;
-  saveSession({ ...cur, self, ...(token ? { token } : {}) });
+  if (cur) saveSession({ ...cur, self, ...(token ? { token } : {}) });
+}
+
+export const loadTicket = () => readJson<Ticket>(TICKET_KEY);
+export function saveTicket(t: Ticket | null) {
+  if (t) localStorage.setItem(TICKET_KEY, JSON.stringify(t));
+  else localStorage.removeItem(TICKET_KEY);
 }
 
 export class ApiError extends Error {
@@ -185,46 +138,26 @@ async function call<T>(server: string, path: string, init: RequestInit & { token
   return body as T;
 }
 
+const post = (body: unknown, token?: string) => ({ method: 'POST', body: JSON.stringify(body), token });
+
 export const api = {
-  verify: (server: string, req: { callsign: string; password: string }) =>
-    call<AuthVerifyResponse>(server, '/api/auth/verify', { method: 'POST', body: JSON.stringify(req) }),
-  networks: (server: string) =>
-    call<{ ok: boolean; ts: number; networks: NetworkItem[] }>(server, '/api/networks'),
-  login: (server: string, req: AuthRequest) =>
-    call<JoinResponse>(server, '/api/auth/login', { method: 'POST', body: JSON.stringify(req) }),
-  join: (server: string, req: JoinRequest) =>
-    call<JoinResponse>(server, '/api/join', { method: 'POST', body: JSON.stringify(req) }),
-  leave: (s: Session) =>
-    call<{ ok: boolean }>(s.server, '/api/leave', { method: 'POST', token: s.token }),
-  voice: (s: Session) => call<VoiceInfo>(s.server, '/api/voice', { token: s.token }),
-  health: (server: string) => call<{ ok: boolean; voice: boolean }>(server, '/api/health'),
-  createMatch: (
-    server: string,
-    adminToken: string,
-    body: { name: string; commandPin?: string; password?: string; code?: string },
-  ) =>
-    call<{ id: string; code: string; name: string }>(server, '/api/admin/matches', {
-      method: 'POST',
-      token: adminToken,
-      body: JSON.stringify(body),
-    }),
-  adminListUsers: (server: string, adminToken: string) =>
-    call<AdminUserItem[]>(server, '/api/admin/users', { token: adminToken }),
-  adminSaveUser: (
-    server: string,
-    adminToken: string,
-    body: { callsign: string; password: string; squad: Squad; role: Role },
-  ) =>
-    call<{ id: string; callsign: string; updated?: boolean; created?: boolean }>(server, '/api/admin/users', {
-      method: 'POST',
-      token: adminToken,
-      body: JSON.stringify(body),
-    }),
-  adminDeleteUser: (server: string, adminToken: string, callsign: string) =>
-    call<{ ok: boolean }>(server, `/api/admin/users/${encodeURIComponent(callsign)}`, {
-      method: 'DELETE',
-      token: adminToken,
-    }),
+  verify: (server: string, req: { callsign: string; password: string }) => call<AuthVerifyResponse>(server, '/api/auth/verify', post(req)),
+  networks: (t: Ticket) => call<{ ok: boolean; ts: number; networks: NetworkItem[] }>(t.server, '/api/networks', { token: t.ticket }),
+  join: (t: Ticket, req: JoinMatchRequest) => call<JoinResponse>(t.server, '/api/auth/join', post(req, t.ticket)),
+  leave: (s: Session) => call<{ ok: boolean }>(s.server, '/api/leave', { method: 'POST', token: s.token }),
+
+  adminListMatches: (server: string, admin: string) => call<AdminMatchItem[]>(server, '/api/admin/matches', { token: admin }),
+  adminCreateMatch: (server: string, admin: string, body: { name: string; password: string; commandPin?: string }) =>
+    call<{ id: string; code: string; name: string; commandPin: string }>(server, '/api/admin/matches', post(body, admin)),
+  adminEndMatch: (server: string, admin: string, id: string) =>
+    call<{ ok: boolean }>(server, `/api/admin/matches/${encodeURIComponent(id)}/end`, { method: 'POST', token: admin }),
+  adminListUsers: (server: string, admin: string) => call<AdminUserItem[]>(server, '/api/admin/users', { token: admin }),
+  adminSaveUser: (server: string, admin: string, body: { callsign: string; password: string; squad: Squad; role: Role }) =>
+    call<{ id: string; callsign: string; updated?: boolean; created?: boolean }>(server, '/api/admin/users', post(body, admin)),
+  adminKickUser: (server: string, admin: string, callsign: string) =>
+    call<{ ok: boolean }>(server, `/api/admin/users/${encodeURIComponent(callsign)}/kick`, { method: 'POST', token: admin }),
+  adminDeleteUser: (server: string, admin: string, callsign: string) =>
+    call<{ ok: boolean }>(server, `/api/admin/users/${encodeURIComponent(callsign)}`, { method: 'DELETE', token: admin }),
 };
 
 export function wsUrl(server: string): string {

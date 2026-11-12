@@ -1,6 +1,7 @@
 # Local / Home-PC deployment via Docker Desktop + Cloudflare Tunnel.
 #   Windows: powershell -ExecutionPolicy Bypass -File scripts\local.ps1
-# Reads domain, tunnel token, and admin credentials from .env.local (auto-created on first run).
+# All secrets come from .env.local (scripts\local.ps1 generates it with random values on first run).
+# There are deliberately NO default secrets here: this stack is reachable from the internet through the tunnel.
 name: tactic-local
 
 services:
@@ -13,19 +14,22 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATA_DIR: /data
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8088}
-      JWT_SECRET: ${JWT_SECRET:-local-only-jwt-secret-0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is not set - run scripts/local.ps1}
       ADMIN_USER: ${ADMIN_USER:-administrator}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-A123456a}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is not set - run scripts/local.ps1}
       REDIS_URL: redis://redis:6379
-      LIVEKIT_URL: auto
-      LIVEKIT_API_KEY: tactic
-      LIVEKIT_API_SECRET: local-only-livekit-secret-0123456789abcdef
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
     volumes:
       - ./data:/data
       - ./apk/out:/app/apk:ro
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   redis:
     image: redis:7-alpine
@@ -34,45 +38,20 @@ services:
     volumes:
       - ./data/redis:/data
 
-  livekit:
-    image: livekit/livekit-server:v1.8
-    profiles: ["livekit"]
-    restart: unless-stopped
-    environment:
-      LIVEKIT_CONFIG: |
-        port: 7880
-        log_level: info
-        rtc:
-          tcp_port: 7881
-          port_range_start: 40000
-          port_range_end: 40100
-          use_external_ip: false
-          node_ip: ${LAN_IP:-127.0.0.1}
-        room:
-          auto_create: true
-          empty_timeout: 300
-        keys:
-          tactic: local-only-livekit-secret-0123456789abcdef
-    ports:
-      - "7881:7881/tcp"
-      - "40000-40100:40000-40100/udp"
-
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
     ports:
-      - "8088:80"
+      # Loopback only: players reach the server through the tunnel, never directly over the LAN in clear text.
+      - "127.0.0.1:8088:80"
     volumes:
       - ./deploy/Caddyfile.proxy:/etc/caddy/Caddyfile:ro
     depends_on:
       - app
 
   tunnel:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.7
     restart: unless-stopped
     command: ${TUNNEL_ARGS:-tunnel --no-autoupdate --metrics 0.0.0.0:20241 --url http://caddy:80}
     depends_on:
       - caddy
-
-volumes:
-  app_data:

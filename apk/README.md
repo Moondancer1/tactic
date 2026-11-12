@@ -19,7 +19,7 @@ powershell -ExecutionPolicy Bypass -File apk\build-apk.ps1
 powershell -ExecutionPolicy Bypass -File apk\build-apk.ps1 -Server https://tactic.example.com
 ```
 
-Готовый файл: `apk\out\tactic-debug.apk`. Первая сборка занимает 5–10 минут (Gradle скачивает зависимости), следующие около минуты.
+Готовый файл: `apk\out\tactic.apk` (release, подписан вашим ключом). Первая сборка занимает 5–10 минут (Gradle скачивает зависимости), следующие около минуты.
 
 Скрипт сам находит JDK (из `JAVA_HOME` или из Android Studio) и Android SDK (`%LOCALAPPDATA%\Android\Sdk`).
 
@@ -27,4 +27,4 @@ powershell -ExecutionPolicy Bypass -File apk\build-apk.ps1 -Server https://tacti
 
 Скопируйте APK на телефон, откройте файл и разрешите установку из неизвестных источников. Дальше по [docs/ANDROID.md](../docs/ANDROID.md#первая-настройка-на-телефоне): разрешения, фоновая работа, офлайн-карта.
 
-APK подписан debug-ключом. Подписанный release собирается через GitHub Actions, см. [docs/ANDROID.md](../docs/ANDROID.md).
+При первой сборке создаётся ключ подписи `apk\keystore\tactic-release.jks`, а его пароли дописываются в `.env.local`. **Сохраните оба** (например, в приватный репозиторий): без того же ключа обновление не встанет поверх установленного приложения. Подробнее: [docs/ANDROID.md](../docs/ANDROID.md).
