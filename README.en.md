@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎯 Tactic — C2 / Intercom
+# Tactic — C2 / Intercom
 
 **A tactical map and push-to-talk radio for airsoft, running on your own server**
 
@@ -63,14 +63,14 @@ You host the server **yourself**, on a home PC or a rented VPS. No third-party c
 
 ## Features
 
-### 🗺️ Map
+### Map
 - **SAT** (Esri World Imagery satellite), **2D** (OpenFreeMap vector map), **3D** (buildings when tilted with two fingers) and **TOPO** (OpenTopoMap) layers.
 - **Offline map**: download the playing area before the game and the map works without internet.
 - Live player positions: callsign, squad, role, facing direction (compass, corrected for magnetic declination), status and battery level. A player who has not reported for a while is shown faded.
 - UTM tactical grid of **50 / 100 / 250 m** with named sectors, plus a centre crosshair showing **MGRS** coordinates, range and bearing from you and from the nearest reference point.
 - **ME** button: centre the map on yourself and send a fresh position immediately.
 
-### 📍 Tactical markings
+### Tactical markings
 | Tool | What it does | Who can use it |
 |---|---|---|
 | **ENEMY** | Enemy contact (type, count, moving or not, disappear timer) | everyone |
@@ -84,19 +84,19 @@ You host the server **yourself**, on a home PC or a rented VPS. No third-party c
 
 Commanders are the **Squad leader** and **Commander** roles. Taking a command role in a game requires that network's **command PIN**.
 
-### 📻 Voice (push-to-talk)
+### Voice (push-to-talk)
 - Three channels: **SQD** (your squad), **ALL** (everyone in the network), **CMD** (commanders only).
 - Works like a radio: while one person talks, the channel is busy. A second speaker sees "Канал занят" (channel busy).
 - Voice travels over the same secure connection as the map, so it works over mobile data and tunnels with no UDP ports to open.
 - Talk with: the on-screen PTT button, the **space bar** on a computer, the **headset button** and (optionally) the **volume-down key** on Android — even with the screen locked.
 
-### 💬 Communication and command
+### Communication and command
 - Chat in **ALL / SQUAD / CMD** channels with automatic read-aloud of incoming messages (text-to-speech, Russian and English).
 - Player status **OK / HIT / MEDIC / OUT**: on a change, the squad gets a message with the location.
 - The commander's **briefing** is visible to everyone in the network.
-- **TEAM** tab: who is online, who is offline, and a "🎯 НА КАРТУ" (show on map) button for any player.
+- **TEAM** tab: who is online, who is offline, and a "НА КАРТУ" (show on map) button for any player.
 
-### 📱 Android app
+### Android app
 - Works with the **screen off**: a background service sends GPS by itself and keeps voice running.
 - Power modes: **COMBAT** (position every 2 s, screen stays on) and **ECO** (every 5 s). When the player is standing still or the screen is off, every 15 s.
 - Only fresh, accurate positions are shared with the team — no GPS "jumps".
@@ -156,7 +156,7 @@ Every step is explained in detail below.
 | **VPS** | Ubuntu 22.04/24.04 or Debian 12, 1–2 vCPU, 1–2 GB RAM (2 vCPU is enough for 30–60 players), a public IPv4 address and a domain with an A record pointing to the server. |
 | **Phones** | Android 6.0+ (APK) or any modern browser. GPS and microphone permission are required. |
 
-> ⚠️ The server must be reachable **over HTTPS**. Without HTTPS the browser blocks location and microphone access, and the APK only accepts HTTPS. Both options below set up HTTPS automatically.
+> **Important.** The server must be reachable **over HTTPS**. Without HTTPS the browser blocks location and microphone access, and the APK only accepts HTTPS. Both options below set up HTTPS automatically.
 
 ---
 
@@ -315,7 +315,7 @@ powershell -ExecutionPolicy Bypass -File apk\build-apk.ps1
 - Output: **`apk\out\tactic.apk`** — the server starts serving it at `/tactic.apk` right away.
 - Only a **release build signed with your own key** is produced.
 
-> 🔑 **The signing key is the most important part.** The first build creates `apk\keystore\tactic-release.jks` and appends its passwords to `.env.local`. **Keep both somewhere safe** (for example, in a private repository). If the key is lost, new versions cannot be installed over the old one — every player will have to uninstall the app and install it again.
+> **The signing key is the most important part.** The first build creates `apk\keystore\tactic-release.jks` and appends its passwords to `.env.local`. **Keep both somewhere safe** (for example, in a private repository). If the key is lost, new versions cannot be installed over the old one — every player will have to uninstall the app and install it again.
 
 ### Installing on a phone
 
@@ -335,9 +335,9 @@ Set in `.env.local` (PC) or `.env` (VPS). The `local.ps1` and `gen-env.sh` scrip
 
 | Variable | Required | Description |
 |---|---|---|
-| `JWT_SECRET` | ✅ | Session signing key, at least 32 random characters |
+| `JWT_SECRET` | yes | Session signing key, at least 32 random characters |
 | `ADMIN_USER` | — | Admin panel login (default `administrator`) |
-| `ADMIN_PASSWORD` | ✅* | Admin panel password, 10+ characters. Empty = admin panel disabled |
+| `ADMIN_PASSWORD` | yes* | Admin panel password, 10+ characters. Empty = admin panel disabled |
 | `ADMIN_TOKEN` | — | Token for scripts and webhooks (`Authorization: Bearer …`) |
 | `RETENTION_DAYS` | — | Days to keep chat, tracks and ended networks (default `30`) |
 | `CORS_ORIGINS` | — | Extra origins allowed to call the API (comma-separated). The app itself does not need this |
@@ -378,15 +378,15 @@ Players reconnect automatically. The database is kept during updates and migrate
 
 Tactic is designed on the assumption that **the other team may also have a phone, an account and the urge to peek**.
 
-- 🔒 **Team isolation.** One network's map, markers and chat are not accessible from another. The network list is shown only after signing in, network codes are never exposed, and a network password is mandatory.
-- 🔑 **No passwords on the phone.** After signing in, the app keeps only a revocable ticket.
-- ⛔ **Instant revocation.** Kicking, deleting or changing a player's password ends all their sessions at once, including background GPS uploads.
-- 🛡️ **Brute-force protection.** Limits are counted per account, not per IP (behind a tunnel everyone shares one IP): 10 sign-in attempts, 8 network-password attempts and 5 PIN attempts per 15 minutes.
-- 🎯 **Honest positions.** The server sets the time; "teleports" faster than 40 m/s and inaccurate fixes are dropped.
-- ✋ **Other people's markers stay untouched.** Only the author or a commander can change or delete a marker.
-- 🧱 **Web client protection.** A Content Security Policy blocks every script except the app's own files.
-- 📱 **Hardened APK.** Release build, no data backup, no debugging, HTTPS only and system certificates only.
-- ✅ **Automated test.** [`server/test/security-smoke.mjs`](server/test/security-smoke.mjs) checks every protection end to end and runs in CI on every change.
+- **Team isolation.** One network's map, markers and chat are not accessible from another. The network list is shown only after signing in, network codes are never exposed, and a network password is mandatory.
+- **No passwords on the phone.** After signing in, the app keeps only a revocable ticket.
+- **Instant revocation.** Kicking, deleting or changing a player's password ends all their sessions at once, including background GPS uploads.
+- **Brute-force protection.** Limits are counted per account, not per IP (behind a tunnel everyone shares one IP): 10 sign-in attempts, 8 network-password attempts and 5 PIN attempts per 15 minutes.
+- **Honest positions.** The server sets the time; "teleports" faster than 40 m/s and inaccurate fixes are dropped.
+- **Other people's markers stay untouched.** Only the author or a commander can change or delete a marker.
+- **Web client protection.** A Content Security Policy blocks every script except the app's own files.
+- **Hardened APK.** Release build, no data backup, no debugging, HTTPS only and system certificates only.
+- **Automated test.** [`server/test/security-smoke.mjs`](server/test/security-smoke.mjs) checks every protection end to end and runs in CI on every change.
 
 Found a vulnerability? Please do not post it in public Issues — contact the repository author directly.
 
@@ -478,7 +478,7 @@ The detailed documents are in Russian.
 
 This project is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
 
-| ✅ Allowed — free, no permission needed | ❌ Not allowed without the author's written permission |
+| Allowed — free, no permission needed | Not allowed without the author's written permission |
 |---|---|
 | Using it for yourself, your team and amateur games | Selling the software or a modified version of it |
 | Hosting it on your own server | Building a paid service or subscription on top of it |

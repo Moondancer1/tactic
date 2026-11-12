@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎯 Tactic — C2 / Intercom
+# Tactic — C2 / Intercom
 
 **Straykbol üçün taktiki xəritə və PTT-ratsiya — öz serverinizdə**
 
@@ -63,14 +63,14 @@ Serveri **özünüz** qurursunuz: ev kompüterində və ya icarəyə götürülm
 
 ## Funksiyalar
 
-### 🗺️ Xəritə
+### Xəritə
 - Laylar: **SAT** (Esri World Imagery peyk təsviri), **2D** (OpenFreeMap vektor xəritəsi), **3D** (iki barmaqla əyəndə binalar), **TOPO** (OpenTopoMap).
 - **Oflayn xəritə**: oyundan əvvəl poliqonun ərazisini endirin — xəritə internetsiz işləyəcək.
 - Döyüşçülərin real vaxtda mövqeləri: çağırış işarəsi, dəstə, rol, baxış istiqaməti (maqnit meyli nəzərə alınmaqla kompasa görə), status və batareya səviyyəsi. Uzun müddət məlumat göndərməyən döyüşçünün işarəsi solğun görünür.
 - **50 / 100 / 250 m** addımlı UTM taktiki tor və adlı sektorlar; ekranın mərkəzində **MGRS** koordinatlarını, sizdən və ən yaxın orientirdən məsafəni və azimutu göstərən nişangah.
 - **ME** düyməsi: xəritəni öz mövqeyinizə mərkəzləşdirir və təzə mövqeyi dərhal göndərir.
 
-### 📍 Taktiki nişanlar
+### Taktiki nişanlar
 | Alət | Nə edir | Kim istifadə edə bilər |
 |---|---|---|
 | **ENEMY** | Düşmənlə kontakt (növ, say, hərəkətdədirmi, yox olma taymeri) | hamı |
@@ -84,19 +84,19 @@ Serveri **özünüz** qurursunuz: ev kompüterində və ya icarəyə götürülm
 
 Komandirlər — **Squad leader** və **Commander** rollarıdır. Oyunda komandir rolunu almaq üçün həmin şəbəkənin **komandir PIN-i** lazımdır.
 
-### 📻 Səsli rabitə (Push-To-Talk)
+### Səsli rabitə (Push-To-Talk)
 - Üç kanal: **SQD** (öz dəstəniz), **ALL** (şəbəkədəki hamı), **CMD** (yalnız komandirlər).
 - Ratsiya kimi işləyir: biri danışarkən kanal məşğuldur. İkinci danışan «Канал занят» (kanal məşğuldur) yazısını görəcək.
 - Səs xəritə ilə eyni qorunan kanalla gedir: mobil internet və tunellər üzərindən işləyir, UDP portlarını açmaq lazım deyil.
 - Danışmaq üçün: ekrandakı PTT düyməsi, kompüterdə **boşluq** (Space) düyməsi, Android-də **qulaqlığın düyməsi** və (istəyə görə) **səsi azaltma düyməsi** — hətta ekran kilidli olanda da.
 
-### 💬 Rabitə və komandanlıq
+### Rabitə və komandanlıq
 - **ALL / SQUAD / CMD** kanalları üzrə çat; gələn mesajlar avtomatik səsləndirilir (TTS, rus və ingilis dillərində).
 - Döyüşçü statusları **OK / HIT / MEDIC / OUT**: status dəyişəndə dəstəyə yeri göstərilən mesaj gedir.
 - Komandirin **brifinqi** şəbəkədəki hər kəsə görünür.
-- **TEAM** bölməsi: kim onlayndır, kim oflayndır və istənilən döyüşçünü xəritədə göstərən «🎯 НА КАРТУ» düyməsi.
+- **TEAM** bölməsi: kim onlayndır, kim oflayndır və istənilən döyüşçünü xəritədə göstərən «НА КАРТУ» düyməsi.
 
-### 📱 Android tətbiqi
+### Android tətbiqi
 - **Ekran sönülü olanda** da işləyir: fon xidməti GPS-i özü göndərir və səsli rabitəni saxlayır.
 - Enerji rejimləri: **COMBAT** (hər 2 saniyədən bir mövqe, ekran sönmür) və **ECO** (hər 5 saniyədən bir). Döyüşçü yerində dayananda və ya ekran sönülü olanda — hər 15 saniyədən bir.
 - Komandaya yalnız təzə və dəqiq koordinatlar göndərilir, GPS «sıçrayışları» olmadan.
@@ -156,7 +156,7 @@ Hər addım aşağıda ətraflı izah olunub.
 | **VPS** | Ubuntu 22.04/24.04 və ya Debian 12, 1–2 vCPU, 1–2 GB RAM (30–60 oyunçu üçün 2 vCPU kifayətdir), açıq IPv4 ünvanı və serverə yönəlmiş A-qeydi olan domen. |
 | **Telefonlar** | Android 6.0+ (APK) və ya istənilən müasir brauzer. GPS və mikrofon icazəsi tələb olunur. |
 
-> ⚠️ Server **HTTPS ilə** açılmalıdır. HTTPS olmadan brauzer sayta nə geolokasiya, nə də mikrofon verir, APK isə yalnız HTTPS qəbul edir. Aşağıdakı hər iki variant HTTPS-i avtomatik qurur.
+> **Vacib.** Server **HTTPS ilə** açılmalıdır. HTTPS olmadan brauzer sayta nə geolokasiya, nə də mikrofon verir, APK isə yalnız HTTPS qəbul edir. Aşağıdakı hər iki variant HTTPS-i avtomatik qurur.
 
 ---
 
@@ -315,7 +315,7 @@ powershell -ExecutionPolicy Bypass -File apk\build-apk.ps1
 - Nəticə: **`apk\out\tactic.apk`** — server onu dərhal `/tactic.apk` ünvanında paylamağa başlayır.
 - Yalnız **sizin açarınızla imzalanmış release versiyası** yığılır.
 
-> 🔑 **İmza açarı — ən vacib hissədir.** İlk yığılmada `apk\keystore\tactic-release.jks` faylı yaradılır, onun parolları isə `.env.local` faylına əlavə olunur. **Hər ikisini etibarlı yerdə saxlayın** (məsələn, şəxsi repozitoriyada). Açar itərsə, yeni versiyalar köhnənin üzərinə quraşdırılmayacaq — hər döyüşçü tətbiqi silib yenidən quraşdırmalı olacaq.
+> **İmza açarı — ən vacib hissədir.** İlk yığılmada `apk\keystore\tactic-release.jks` faylı yaradılır, onun parolları isə `.env.local` faylına əlavə olunur. **Hər ikisini etibarlı yerdə saxlayın** (məsələn, şəxsi repozitoriyada). Açar itərsə, yeni versiyalar köhnənin üzərinə quraşdırılmayacaq — hər döyüşçü tətbiqi silib yenidən quraşdırmalı olacaq.
 
 ### Telefona quraşdırma
 
@@ -335,9 +335,9 @@ Tətbiq fonda işləyəndə bildiriş pərdəsində «Tactic: GPS … · radio l
 
 | Dəyişən | Məcburidir | Təsvir |
 |---|---|---|
-| `JWT_SECRET` | ✅ | Sessiyaların imza açarı, ən azı 32 təsadüfi simvol |
+| `JWT_SECRET` | bəli | Sessiyaların imza açarı, ən azı 32 təsadüfi simvol |
 | `ADMIN_USER` | — | Admin panelinin logini (standart olaraq `administrator`) |
-| `ADMIN_PASSWORD` | ✅* | Admin panelinin parolu, ən azı 10 simvol. Boşdursa, admin paneli söndürülür |
+| `ADMIN_PASSWORD` | bəli* | Admin panelinin parolu, ən azı 10 simvol. Boşdursa, admin paneli söndürülür |
 | `ADMIN_TOKEN` | — | Skriptlər və webhook üçün token (`Authorization: Bearer …`) |
 | `RETENTION_DAYS` | — | Çat, treklər və bitmiş şəbəkələr neçə gün saxlanılsın (standart olaraq `30`) |
 | `CORS_ORIGINS` | — | API-yə müraciət etməyə icazə verilən əlavə ünvanlar (vergüllə). Tətbiqin özünə bu lazım deyil |
@@ -378,15 +378,15 @@ Döyüşçülər avtomatik yenidən qoşulur. Yeniləmə zamanı verilənlər ba
 
 Tactic **rəqibin də telefonu, hesabı və gizlicə baxmaq istəyi ola bilər** fərziyyəsi ilə layihələndirilib.
 
-- 🔒 **Komandaların təcrid olunması.** Bir şəbəkənin xəritəsi, nişanları və çatı digərindən əlçatan deyil. Şəbəkələr siyahısı yalnız daxil olduqdan sonra görünür, şəbəkə kodları açıqlanmır, şəbəkə parolu məcburidir.
-- 🔑 **Parollar telefonda saxlanılmır.** Daxil olduqdan sonra tətbiq yalnız ləğv edilə bilən bileti saxlayır.
-- ⛔ **Girişin dərhal ləğvi.** Döyüşçünün çıxarılması, silinməsi və ya parolunun dəyişdirilməsi onun bütün sessiyalarını, o cümlədən fonda GPS göndərilməsini dərhal kəsir.
-- 🛡️ **Parol seçməyə qarşı qoruma.** Məhdudiyyətlər IP-yə görə deyil, hesaba görə hesablanır (tunel arxasında hamının IP-si eynidir): 15 dəqiqədə 10 giriş cəhdi, şəbəkə parolu üçün 8 cəhd və PIN üçün 5 cəhd.
-- 🎯 **Dürüst mövqelər.** Vaxtı server qoyur; 40 m/s-dən sürətli «teleportlar» və qeyri-dəqiq ölçmələr atılır.
-- ✋ **Başqasının nişanlarına toxunmaq olmaz.** Nişanı yalnız onun müəllifi və ya komandir dəyişə və silə bilər.
-- 🧱 **Veb-klientin qorunması.** CSP siyasəti tətbiqin öz fayllarından başqa heç bir skriptin icrasına icazə vermir.
-- 📱 **Qorunan APK.** Release yığılması, məlumatların ehtiyat nüsxəsi və sazlama olmadan, yalnız HTTPS və yalnız sistem sertifikatları ilə.
-- ✅ **Avtomatik test.** [`server/test/security-smoke.mjs`](server/test/security-smoke.mjs) bütün qorumaları başdan-sona ssenari ilə yoxlayır və hər dəyişiklikdə CI-da işə düşür.
+- **Komandaların təcrid olunması.** Bir şəbəkənin xəritəsi, nişanları və çatı digərindən əlçatan deyil. Şəbəkələr siyahısı yalnız daxil olduqdan sonra görünür, şəbəkə kodları açıqlanmır, şəbəkə parolu məcburidir.
+- **Parollar telefonda saxlanılmır.** Daxil olduqdan sonra tətbiq yalnız ləğv edilə bilən bileti saxlayır.
+- **Girişin dərhal ləğvi.** Döyüşçünün çıxarılması, silinməsi və ya parolunun dəyişdirilməsi onun bütün sessiyalarını, o cümlədən fonda GPS göndərilməsini dərhal kəsir.
+- **Parol seçməyə qarşı qoruma.** Məhdudiyyətlər IP-yə görə deyil, hesaba görə hesablanır (tunel arxasında hamının IP-si eynidir): 15 dəqiqədə 10 giriş cəhdi, şəbəkə parolu üçün 8 cəhd və PIN üçün 5 cəhd.
+- **Dürüst mövqelər.** Vaxtı server qoyur; 40 m/s-dən sürətli «teleportlar» və qeyri-dəqiq ölçmələr atılır.
+- **Başqasının nişanlarına toxunmaq olmaz.** Nişanı yalnız onun müəllifi və ya komandir dəyişə və silə bilər.
+- **Veb-klientin qorunması.** CSP siyasəti tətbiqin öz fayllarından başqa heç bir skriptin icrasına icazə vermir.
+- **Qorunan APK.** Release yığılması, məlumatların ehtiyat nüsxəsi və sazlama olmadan, yalnız HTTPS və yalnız sistem sertifikatları ilə.
+- **Avtomatik test.** [`server/test/security-smoke.mjs`](server/test/security-smoke.mjs) bütün qorumaları başdan-sona ssenari ilə yoxlayır və hər dəyişiklikdə CI-da işə düşür.
 
 Zəiflik tapdınız? Xahiş edirik, onu açıq Issues-da dərc etməyin — repozitoriyanın müəllifi ilə birbaşa əlaqə saxlayın.
 
@@ -478,7 +478,7 @@ tactic/
 
 Layihə **[PolyForm Noncommercial 1.0.0](LICENSE)** lisenziyası ilə yayılır.
 
-| ✅ Olar — pulsuz və icazəsiz | ❌ Müəllifin yazılı icazəsi olmadan olmaz |
+| Olar — pulsuz və icazəsiz | Müəllifin yazılı icazəsi olmadan olmaz |
 |---|---|
 | Özünüz, komandanız və həvəskar oyunlar üçün istifadə etmək | Proqramı və ya onun dəyişdirilmiş versiyasını satmaq |
 | Öz serverinizdə yerləşdirmək | Onun əsasında pullu xidmət və ya abunə yaratmaq |

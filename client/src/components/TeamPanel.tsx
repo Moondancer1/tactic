@@ -149,14 +149,14 @@ export function TeamPanel({ onLogout }: { onLogout: () => void }) {
             style={{ ['--c' as string]: '#9bd35a' }}
             onClick={() => setFilter('online')}
           >
-            🟢 В ОНЛАЙНЕ ({onlineCount})
+            В ОНЛАЙНЕ ({onlineCount})
           </button>
           <button
             type="button"
             className={filter === 'all' ? 'on' : ''}
             onClick={() => setFilter('all')}
           >
-            👥 ВСЕ ЗАШЕДШИЕ ({totalCount})
+            ВСЕ ЗАШЕДШИЕ ({totalCount})
           </button>
         </div>
       </div>
@@ -211,7 +211,7 @@ export function TeamPanel({ onLogout }: { onLogout: () => void }) {
                       }}
                       title="Показать бойца на карте"
                     >
-                      🎯 НА КАРТУ
+                      НА КАРТУ
                     </button>
                   </>
                 ) : (

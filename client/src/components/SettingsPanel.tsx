@@ -102,7 +102,7 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
       </label>
       <div className="row">
         <button type="button" onClick={() => speakTts('Проверка голосовой связи. Tactical radio check Alpha one.', true)}>
-          🔊 ТЕСТ TTS (RU / EN)
+          ТЕСТ TTS (RU / EN)
         </button>
       </div>
       <div className="kv">

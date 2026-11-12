@@ -235,11 +235,10 @@ export function Login({
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <b style={{ fontSize: 15, color: 'var(--fg)' }}>
-                          {net.hasPassword ? '🔒 ' : '📡 '}
                           {net.name}
                         </b>
                         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                          Бойцов: {net.onlineCount} онлайн (всего {net.memberCount})
+                          {net.hasPassword ? 'С паролем' : 'Открытая'} · Бойцов: {net.onlineCount} онлайн (всего {net.memberCount})
                         </span>
                       </div>
                       <span className="spacer" />
@@ -493,9 +492,8 @@ function AdminPanel({ server }: { server: string }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {matches.map((m) => (
           <div key={m.id} className="member" style={{ padding: '6px 4px' }}>
-            <b>
-              {m.hasPassword ? '🔒' : '📡'} {m.name}
-            </b>
+            <b>{m.name}</b>
+            <span className="role">{m.hasPassword ? 'ПАРОЛЬ' : 'ОТКРЫТА'}</span>
             <span className="role" title="PIN командира">
               PIN {m.commandPin}
             </span>

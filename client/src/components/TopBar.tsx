@@ -86,7 +86,7 @@ export function TopBar({
         ) : rx.length ? (
           rx.map(([ch, who]) => (
             <span key={ch} className="rx">
-              ◀ {who} [{VOICE_CHANNEL_META[ch].short}]
+              RX {who} [{VOICE_CHANNEL_META[ch].short}]
             </span>
           ))
         ) : (

@@ -527,7 +527,7 @@ export function MapView() {
         [p.lat, p.lon],
         `<b style="color:${SQUAD_META[p.squad].color}">${esc(p.callsign)}</b> · ${p.role.toUpperCase()} · ${SQUAD_META[p.squad].label}
          ${where(p.lat, p.lon)}
-         <div class="pp-sub">±${p.acc}m${p.bat != null ? ` · 🔋${p.bat}%` : ''} · ${p.status.toUpperCase()} · fix ${new Date(p.ts).toLocaleTimeString()}</div>`,
+         <div class="pp-sub">±${p.acc}m${p.bat != null ? ` · BAT ${p.bat}%` : ''} · ${p.status.toUpperCase()} · fix ${new Date(p.ts).toLocaleTimeString()}</div>`,
         {},
       );
     }

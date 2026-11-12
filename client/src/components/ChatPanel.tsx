@@ -72,7 +72,7 @@ export function ChatPanel() {
           onClick={() => setSettings({ tts: !tts })}
           title="Авто-озвучка сообщений (Text-to-Speech RU/EN)"
         >
-          {tts ? '🔊 TTS ВКЛ' : '🔇 TTS ВЫКЛ'}
+          {tts ? 'TTS ВКЛ' : 'TTS ВЫКЛ'}
         </button>
       </div>
       <div className="msgs" ref={list} onScroll={onScrollMsgs}>
@@ -111,7 +111,7 @@ export function ChatPanel() {
                 }}
                 title={coolingIds[m.id] ? 'Уже озвучивается (защита от повторного нажатия)' : 'Озвучить сообщение (TTS)'}
               >
-                {coolingIds[m.id] ? '⏳' : '🔊'}
+                {coolingIds[m.id] ? '…' : 'TTS'}
               </button>
             </div>
           );

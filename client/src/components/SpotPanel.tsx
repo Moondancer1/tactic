@@ -117,10 +117,10 @@ export function SpotPanel() {
       </button>
       <div className="row">
         <button className="wide" disabled={!where} onClick={() => quick('medic', 'НУЖЕН МЕДИК')}>
-          ✚ МЕДИК
+          МЕДИК
         </button>
         <button className="wide" disabled={!where} onClick={() => quick('danger', 'ОПАСНАЯ ЗОНА')}>
-          ⚠ ОПАСНО
+          ОПАСНО
         </button>
       </div>
     </div>

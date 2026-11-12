@@ -7,7 +7,7 @@ import { bearing, declination, distance, fmtAz, fmtDist, fmtMils } from '../lib/
 import { callout, calloutText } from '../lib/callout';
 
 const TOOLS: { id: Tool; icon: string; label: string; leader?: boolean }[] = [
-  { id: 'measure', icon: '📏', label: 'RULER' },
+  { id: 'measure', icon: '⟷', label: 'RULER' },
   { id: 'contact', icon: '◆', label: 'ENEMY' },
   { id: 'trp', icon: '⌖', label: 'TRP', leader: true },
   { id: 'objective', icon: '◎', label: 'OBJ', leader: true },
