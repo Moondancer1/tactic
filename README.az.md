@@ -65,10 +65,12 @@ Serveri **özünüz** qurursunuz: ev kompüterində və ya icarəyə götürülm
 
 ### Xəritə
 - Laylar: **SAT** (Esri World Imagery peyk təsviri), **2D** (OpenFreeMap vektor xəritəsi), **3D** (iki barmaqla əyəndə binalar), **TOPO** (OpenTopoMap).
-- **Oflayn xəritə**: oyundan əvvəl poliqonun ərazisini endirin — xəritə internetsiz işləyəcək.
+- **Oflayn xəritə**: oyundan əvvəl poliqonun ərazisini endirin — xəritə internetsiz işləyəcək. Endirilmiş ərazi ayrıca saxlanılır və özbaşına silinmir, sadəcə baxılmış xəritənin keşi isə məhduddur və köhnə hissələri avtomatik silinir. Tutulan yer tənzimləmələrdə görünür.
 - Döyüşçülərin real vaxtda mövqeləri: çağırış işarəsi, dəstə, rol, baxış istiqaməti (maqnit meyli nəzərə alınmaqla kompasa görə), status və batareya səviyyəsi. Uzun müddət məlumat göndərməyən döyüşçünün işarəsi solğun görünür.
 - **50 / 100 / 250 m** addımlı UTM taktiki tor və adlı sektorlar; ekranın mərkəzində **MGRS** koordinatlarını, sizdən və ən yaxın orientirdən məsafəni və azimutu göstərən nişangah.
 - **ME** düyməsi: xəritəni öz mövqeyinizə mərkəzləşdirir və təzə mövqeyi dərhal göndərir.
+- Xəritəni uzaqlaşdıranda döyüşçülər və nişanlar rəqəmli **klasterlərə** birləşir — yaxınlaşdırmaq üçün klasterə toxunun. Xəritədəki hər şeyi videokart çəkir, buna görə onlarla döyüşçü olanda da ləngimir.
+- **Kompasa görə xəritə** (standart olaraq söndürülüb, MAP pərdəsi): xəritə telefonun istiqamətinə görə fırlanır. N düyməsi şimalı yuxarı qaytarır.
 
 ### Taktiki nişanlar
 | Alət | Nə edir | Kim istifadə edə bilər |
@@ -94,6 +96,7 @@ Komandirlər — **Squad leader** və **Commander** rollarıdır. Oyunda komandi
 - **ALL / SQUAD / CMD** kanalları üzrə çat; gələn mesajlar avtomatik səsləndirilir (TTS, rus və ingilis dillərində).
 - Döyüşçü statusları **OK / HIT / MEDIC / OUT**: status dəyişəndə dəstəyə yeri göstərilən mesaj gedir.
 - Komandirin **brifinqi** şəbəkədəki hər kəsə görünür.
+- **Oyunun təhlili**: bütün döyüşçülərin hərəkət trekləri xəritədə — geri-irəli çəkmə, ×10–×120 sürət və son 5 / 15 dəqiqənin və ya bütün yolun «quyruğu» ilə. Komandirlər oyun zamanı BRIEF bölməsindən, administrator isə istənilən şəbəkə, o cümlədən bitmiş şəbəkə üçün açır.
 - **TEAM** bölməsi: kim onlayndır, kim oflayndır və istənilən döyüşçünü xəritədə göstərən «НА КАРТУ» düyməsi.
 
 ### Android tətbiqi

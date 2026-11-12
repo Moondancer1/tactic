@@ -15,6 +15,7 @@ import {
 import { isNative } from '../lib/native';
 import { friendlyError } from '../lib/errors';
 import { requestCompassPermission } from '../lib/tracking';
+import { ReplayView } from './ReplayView';
 
 /** Admin credentials live only for this browser tab (sessionStorage), never on disk. */
 const ADMIN_KEY = 'tactic.admin';
@@ -369,6 +370,8 @@ function AdminPanel({ server }: { server: string }) {
   const [authed, setAuthed] = useState(false);
   const [users, setUsers] = useState<AdminUserItem[]>([]);
   const [matches, setMatches] = useState<AdminMatchItem[]>([]);
+  const [ended, setEnded] = useState<AdminMatchItem[]>([]);
+  const [replay, setReplay] = useState<AdminMatchItem | null>(null);
   const [callsign, setCallsign] = useState('');
   const [password, setPassword] = useState('');
   const [squad, setSquad] = useState<Squad>('alpha');
@@ -386,6 +389,7 @@ function AdminPanel({ server }: { server: string }) {
       const [u, m] = await Promise.all([api.adminListUsers(server, tok), api.adminListMatches(server, tok)]);
       setUsers(u);
       setMatches(m.filter((x) => x.active));
+      setEnded(m.filter((x) => !x.active).slice(0, 15));
       setAuthed(true);
       setToken(tok);
       sessionStorage.setItem(ADMIN_KEY, tok);
@@ -499,12 +503,34 @@ function AdminPanel({ server }: { server: string }) {
             </span>
             <span className="role">{m.onlineCount} онлайн</span>
             <span className="spacer" />
+            <button type="button" className="small-btn" title="Треки движения бойцов" onClick={() => setReplay(m)}>
+              РАЗБОР
+            </button>
             <button type="button" className="danger small-btn" title="Завершить сеть: все бойцы будут отключены" onClick={() => endMatch(m)}>
               ЗАВЕРШИТЬ
             </button>
           </div>
         ))}
       </div>
+
+      {ended.length > 0 && (
+        <>
+          <h4 style={{ margin: '8px 0 0' }}>ЗАВЕРШЁННЫЕ СЕТИ</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+            {ended.map((m) => (
+              <div key={m.id} className="member" style={{ padding: '6px 4px' }}>
+                <b>{m.name}</b>
+                <span className="role">{m.endedAt ? new Date(m.endedAt).toLocaleDateString() : ''}</span>
+                <span className="spacer" />
+                <button type="button" className="small-btn" title="Треки движения бойцов" onClick={() => setReplay(m)}>
+                  РАЗБОР
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {replay && <ReplayView title={replay.name} load={() => api.adminTracks(server, token, replay.id)} onClose={() => setReplay(null)} />}
 
       <form onSubmit={createMatch} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <h4 style={{ margin: '8px 0 0' }}>НОВАЯ СЕТЬ (ОДНА СЕТЬ = ОДНА КОМАНДА)</h4>

@@ -171,6 +171,13 @@ await check('chat replayed from an offline outbox is delivered once', async () =
   assert.equal(wsB.frames.filter((m) => m.t === 'chat' && m.msg.text === `hello ${sfx}`).length, 1);
 });
 
+await check('movement tracks (replay) are for commanders of the own network only', async () => {
+  assert.equal((await http('GET', '/api/match/tracks', { token: sA.token })).status, 403);
+  const res = await http('GET', '/api/match/tracks', { token: sL.token });
+  assert.equal(res.status, 200);
+  assert.ok(res.body[sA.self.id]?.points.length >= 1, 'rifleman track recorded');
+});
+
 await check('kick revokes socket, session token and ticket', async () => {
   assert.equal((await admin('POST', `/api/admin/users/${A}/kick`)).status, 200);
   assert.equal(await wsA.closed(), 4003);

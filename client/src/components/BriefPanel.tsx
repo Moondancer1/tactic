@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { isCommandRole } from '@tactic/shared';
 import { useStore } from '../store';
 import { socket } from '../lib/socket';
+import { api, loadSession } from '../lib/api';
+import { ReplayView } from './ReplayView';
 
 /** Plain-text briefing (SMEAC). Leaders edit; everyone reads. */
 export function BriefPanel() {
@@ -11,6 +13,9 @@ export function BriefPanel() {
   const [edit, setEdit] = useState(false);
   const [draft, setDraft] = useState(briefing.text);
   const leader = !!self && isCommandRole(self.role);
+  const canReplay = leader || self?.squad === 'command';
+  const match = useStore((s) => s.match);
+  const [replay, setReplay] = useState(false);
 
   useEffect(() => {
     if (!edit) setDraft(briefing.text);
@@ -55,6 +60,22 @@ export function BriefPanel() {
           )}
           {leader && <button onClick={() => setEdit(true)}>РЕДАКТИРОВАТЬ БРИФИНГ</button>}
         </>
+      )}
+      {canReplay && (
+        <button onClick={() => setReplay(true)} title="Треки движения всех бойцов сети с перемоткой">
+          РАЗБОР ИГРЫ (ТРЕКИ)
+        </button>
+      )}
+      {replay && (
+        <ReplayView
+          title={match?.name ?? ''}
+          load={() => {
+            const s = loadSession();
+            if (!s) return Promise.reject(new Error('Сессия истекла — войдите заново'));
+            return api.matchTracks(s);
+          }}
+          onClose={() => setReplay(false)}
+        />
       )}
     </div>
   );

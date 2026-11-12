@@ -45,6 +45,8 @@ export interface Settings {
   /** ruler starts at my GPS position */
   rulerFromMe: boolean;
   graphics: Graphics;
+  /** rotate the map so the direction the phone faces is up (compass); off = north up */
+  headingUp: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -64,6 +66,7 @@ const DEFAULT_SETTINGS: Settings = {
   crosshair: true,
   rulerFromMe: true,
   graphics: 'auto',
+  headingUp: false,
 };
 
 /**

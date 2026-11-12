@@ -5,7 +5,8 @@ import maplibregl, { type GeoJSONSource, type LngLatLike } from 'maplibre-gl';
 import { SQUAD_META, isCommandRole, type Marker, type PlayerState, type Route, type Zone } from '@tactic/shared';
 import { useStore, type BaseLayer } from '../store';
 import { BASE_LAYERS, LABEL_FONT, registerCacheProtocol, transformRequest } from '../lib/tiles';
-import { contactHtml, esc, objectiveHtml, playerHtml, pointHtml, trpHtml, vertexHtml } from '../lib/symbols';
+import { esc, playerHtml, vertexHtml } from '../lib/symbols';
+import { LABEL_COLORS, OBJ_COLORS, mapIcon } from '../lib/mapIcons';
 import { bearing, distance, fmtAz, fmtDist, mgrs } from '../lib/geo';
 import { buildGrid } from '../lib/grid';
 import { callout, calloutText } from '../lib/callout';
@@ -161,6 +162,8 @@ export function MapView() {
       'grid-labels': EMPTY,
       acc: EMPTY,
       draft: EMPTY,
+      marks: EMPTY,
+      units: EMPTY,
     };
     const setData = (id: string, d: GeoJSON.FeatureCollection) => {
       data[id] = d;
@@ -190,7 +193,9 @@ export function MapView() {
         if (!map.hasImage(id)) map.addImage(id, hatchImage(color, cross));
       if (!map.hasImage('route-chevron')) map.addImage('route-chevron', arrowImage(false), { sdf: true });
       if (!map.hasImage('route-head')) map.addImage('route-head', arrowImage(true), { sdf: true });
-      for (const id of Object.keys(data)) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: data[id]! });
+      // Units and markers merge into numbered clusters when zoomed out (GPU-rendered, no DOM per object).
+      const clustered = (id: string) => (id === 'units' || id === 'marks' ? { cluster: true, clusterRadius: 44, clusterMaxZoom: 13 } : {});
+      for (const id of Object.keys(data)) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: data[id]!, ...clustered(id) });
 
       const vis = store.getState().settings.grid ? 'visible' : 'none';
       map.addLayer({ id: 'grid-minor', type: 'line', source: 'grid', filter: ['!', ['get', 'major']], layout: { visibility: vis }, paint: { 'line-width': 0.8, 'line-opacity': 0.55 } });
@@ -245,6 +250,78 @@ export function MapView() {
       });
       map.addLayer({ id: 'acc-fill', type: 'fill', source: 'acc', paint: { 'fill-color': '#9bd35a', 'fill-opacity': 0.08 } });
       map.addLayer({ id: 'acc-line', type: 'line', source: 'acc', paint: { 'line-color': '#9bd35a', 'line-width': 1 } });
+
+      const isCluster: maplibregl.FilterSpecification = ['has', 'point_count'];
+      const single: maplibregl.FilterSpecification = ['!', ['has', 'point_count']];
+      const clusterLayers = (src: string, color: string, textColor: string) => {
+        map.addLayer({
+          id: `${src}-cluster`,
+          type: 'circle',
+          source: src,
+          filter: isCluster,
+          paint: { 'circle-color': color, 'circle-opacity': 0.9, 'circle-stroke-color': '#000', 'circle-stroke-width': 2, 'circle-radius': ['step', ['get', 'point_count'], 13, 10, 17, 30, 21] },
+        });
+        map.addLayer({
+          id: `${src}-cluster-count`,
+          type: 'symbol',
+          source: src,
+          filter: isCluster,
+          layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': LABEL_FONT, 'text-size': 12, 'text-allow-overlap': true },
+          paint: { 'text-color': textColor },
+        });
+      };
+      clusterLayers('marks', '#ff5a4e', '#fff');
+      map.addLayer({
+        id: 'marks',
+        type: 'symbol',
+        source: 'marks',
+        filter: single,
+        layout: {
+          'icon-image': ['get', 'icon'],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'symbol-sort-key': ['get', 'z'],
+          'text-field': ['get', 'label'],
+          'text-font': LABEL_FONT,
+          'text-size': 11,
+          'text-anchor': 'top',
+          'text-offset': ['array', 'number', 2, ['get', 'to']],
+          'text-optional': true,
+        },
+        paint: { 'icon-opacity': ['get', 'op'], 'text-opacity': ['get', 'op'], 'text-color': ['get', 'tc'], 'text-halo-color': '#000', 'text-halo-width': 1.6 },
+      });
+      map.addLayer({
+        id: 'unit-cones',
+        type: 'symbol',
+        source: 'units',
+        filter: ['all', single, ['>=', ['get', 'hdg'], 0]],
+        layout: { 'icon-image': ['get', 'cone'], 'icon-rotate': ['get', 'hdg'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+      });
+      clusterLayers('units', '#9bd35a', '#0b0f0c');
+      map.addLayer({
+        id: 'units',
+        type: 'symbol',
+        source: 'units',
+        filter: single,
+        layout: {
+          'icon-image': ['get', 'icon'],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'text-field': ['get', 'cs'],
+          'text-font': LABEL_FONT,
+          'text-size': 11,
+          'text-anchor': 'top',
+          'text-offset': [0, 1.5],
+          'text-allow-overlap': true,
+        },
+        paint: {
+          'icon-opacity': ['case', ['get', 'stale'], 0.45, 1],
+          'text-opacity': ['case', ['get', 'stale'], 0.6, 1],
+          'text-color': '#fff',
+          'text-halo-color': '#000',
+          'text-halo-width': 1.8,
+        },
+      });
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#9bd35a', 'fill-opacity': 0.12 } });
       map.addLayer({ id: 'draft-casing', type: 'line', source: 'draft', layout: { 'line-cap': 'round' }, paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.5 } });
       map.addLayer({ id: 'draft-line', type: 'line', source: 'draft', layout: { 'line-cap': 'round' }, paint: { 'line-color': '#ffe14d', 'line-width': 3 } });
@@ -255,7 +332,12 @@ export function MapView() {
       updateGrid(true);
     });
     // A missing sprite icon or tile must not spam the console / break the style.
-    map.on('styleimagemissing', () => {});
+    // Unit / marker symbols are drawn on demand from their id (lib/mapIcons). Unknown ids stay blank.
+    map.on('styleimagemissing', (e) => {
+      if (map.hasImage(e.id)) return;
+      const img = mapIcon(e.id);
+      if (img) map.addImage(e.id, img.data, { pixelRatio: img.pixelRatio });
+    });
     map.on('error', (e) => console.debug('[map]', e.error?.message));
 
     // ---------- grid ----------
@@ -316,8 +398,6 @@ export function MapView() {
 
     const zoneLabels = new Map<string, maplibregl.Marker>();
     const routeDecor = new Map<string, maplibregl.Marker[]>();
-    const markerObjs = new Map<string, Dom>();
-    const playerObjs = new Map<string, Dom>();
     let selfObj: Dom | null = null;
     let pickedMarker: maplibregl.Marker | null = null;
     let centeredOnce = !!s0.myPos;
@@ -378,48 +458,59 @@ export function MapView() {
       }
     };
 
-    const markerIcon = (m: Marker, now: number) => {
-      if (m.kind === 'contact') return { html: contactHtml(m, now), cls: 'mk-contact' };
-      if (m.kind === 'objective') return { html: objectiveHtml(m), cls: 'mk-obj' };
-      if (m.kind === 'trp') return { html: trpHtml(m), cls: 'mk-trp' };
-      return { html: pointHtml(m), cls: 'mk-point' };
+    // Markers → one GL source: icon id, label, label colour, TTL fade, label offset under the icon.
+    const markFeature = (m: Marker, now: number): GeoJSON.Feature => {
+      let icon: string, label: string, tc: string, to: [number, number];
+      let op = 1;
+      if (m.kind === 'contact') {
+        icon = `c:${m.contactType ?? 'unknown'}`;
+        label = `${m.label || 'ENEMY'} · ${Math.max(0, Math.round((now - m.createdAt) / 60000))}m`;
+        tc = LABEL_COLORS.contact;
+        to = [0, 2];
+        if (m.expiresAt) op = 0.45 + 0.55 * Math.max(0, Math.min(1, (m.expiresAt - now) / ((m.ttlSec || 1) * 1000)));
+      } else if (m.kind === 'objective') {
+        icon = `o:${m.status}`;
+        label = `OBJ ${m.label || '?'}`;
+        tc = OBJ_COLORS[m.status] ?? '#ffb000';
+        to = [0, 1.9];
+      } else if (m.kind === 'trp') {
+        icon = 'trp';
+        label = m.label || 'TRP';
+        tc = LABEL_COLORS.trp;
+        to = [0, 1.5];
+      } else {
+        icon = `p:${m.kind}`;
+        label = m.label || m.kind.toUpperCase();
+        tc = LABEL_COLORS[m.kind as keyof typeof LABEL_COLORS] ?? '#fff';
+        to = [0, 1.5];
+      }
+      return { type: 'Feature', properties: { id: m.id, icon, label, tc, op, to, z: m.kind === 'contact' ? 2 : 1 }, geometry: { type: 'Point', coordinates: [m.lon, m.lat] } };
     };
-
     const syncMarkers = (markers: Record<string, Marker>) => {
       const now = Date.now();
-      for (const [id, o] of markerObjs) if (!markers[id]) (o.m.remove(), markerObjs.delete(id));
-      for (const m of Object.values(markers)) {
-        const ic = markerIcon(m, now);
-        const o = markerObjs.get(m.id);
-        if (o) {
-          o.m.setLngLat([m.lon, m.lat]);
-          setHtml(o, ic.html);
-          continue;
-        }
-        const mk = domMarker(ic.cls, ic.html, [m.lat, m.lon], {}, () => markerPopup(m.id));
-        mk.getElement().style.zIndex = m.kind === 'contact' ? '5' : '3';
-        markerObjs.set(m.id, { m: mk, key: ic.html });
-      }
+      setData('marks', fc(Object.values(markers).map((m) => markFeature(m, now))));
     };
 
-    const syncPlayers = (players: Record<string, PlayerState>) => {
+    // Positions arrive in 80 ms batches; re-cluster at most ~7 times a second.
+    let unitsTimer = 0;
+    const flushPlayers = () => {
+      unitsTimer = 0;
       const s = store.getState();
       const now = Date.now() + s.clockSkew;
-      for (const [id, o] of playerObjs) if (!players[id] || id === s.self?.id) (o.m.remove(), playerObjs.delete(id));
-      for (const p of Object.values(players)) {
+      const features: GeoJSON.Feature[] = [];
+      for (const p of Object.values(s.players)) {
         if (p.id === s.self?.id || p.lat == null || p.lon == null) continue;
         const stale = !p.online || now - p.ts > STALE_MS;
-        const html = playerHtml(p, { self: false, stale, showCone: !stale });
-        const o = playerObjs.get(p.id);
-        if (o) {
-          o.m.setLngLat([p.lon, p.lat]);
-          setHtml(o, html);
-          continue;
-        }
-        const mk = domMarker('mk-unit', html, [p.lat, p.lon], {}, () => playerPopup(p.id));
-        mk.getElement().style.zIndex = '8';
-        playerObjs.set(p.id, { m: mk, key: html });
+        features.push({
+          type: 'Feature',
+          properties: { id: p.id, icon: `u:${p.squad}:${p.role}:${p.status}`, cone: `cone:${p.squad}`, hdg: !stale && p.heading != null ? p.heading : -1, cs: p.callsign, stale },
+          geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+        });
       }
+      setData('units', fc(features));
+    };
+    const syncPlayers = (_players?: Record<string, PlayerState>) => {
+      unitsTimer ||= window.setTimeout(flushPlayers, 150);
     };
 
     let lastSelfAccKey = '';
@@ -657,17 +748,34 @@ export function MapView() {
         }
         default: {
           if (s.picked) store.setState({ picked: null });
-          const box: [maplibregl.PointLike, maplibregl.PointLike] = [
-            [e.point.x - 8, e.point.y - 8],
-            [e.point.x + 8, e.point.y + 8],
+          const near = (r: number): [maplibregl.PointLike, maplibregl.PointLike] => [
+            [e.point.x - r, e.point.y - r],
+            [e.point.x + r, e.point.y + r],
           ];
-          const hit = map.queryRenderedFeatures(box, { layers: ['routes-line', 'zones-fill'].filter((l) => map.getLayer(l)) })[0];
+          const layers = (ids: string[]) => ids.filter((l) => map.getLayer(l));
+          // Symbols first (units above markers), then clusters, then lines/areas under them.
+          const sym = map.queryRenderedFeatures(near(16), { layers: layers(['units', 'units-cluster', 'marks', 'marks-cluster']) })[0];
+          if (sym) {
+            const id = sym.layer.id;
+            if (id.endsWith('-cluster')) {
+              const src = map.getSource(id === 'units-cluster' ? 'units' : 'marks') as GeoJSONSource;
+              const at = (sym.geometry as GeoJSON.Point).coordinates as [number, number];
+              void src.getClusterExpansionZoom(sym.properties.cluster_id as number).then((z) => map.easeTo({ center: at, zoom: z + 0.2, duration: anim(300) }));
+            } else if (id === 'units') playerPopup(String(sym.properties.id));
+            else markerPopup(String(sym.properties.id));
+            return;
+          }
+          const hit = map.queryRenderedFeatures(near(8), { layers: layers(['routes-line', 'zones-fill']) })[0];
           if (hit) objectPopup(pt, hit.layer.id === 'routes-line' ? 'route' : 'zone', String(hit.properties.id));
         }
       }
     });
     // Right-click (desktop) / long-press (touch): pick a point for a spot report.
     map.on('contextmenu', (e) => pickPoint(e.lngLat.lat, e.lngLat.lng));
+    for (const l of ['units', 'units-cluster', 'marks', 'marks-cluster']) {
+      map.on('mouseenter', l, () => (map.getCanvas().style.cursor = 'pointer'));
+      map.on('mouseleave', l, () => (map.getCanvas().style.cursor = ''));
+    }
     let pressTimer = 0;
     let pressAt: { x: number; y: number } | null = null;
     const cancelPress = () => (clearTimeout(pressTimer), (pressAt = null));
@@ -685,6 +793,25 @@ export function MapView() {
     map.on('touchcancel', cancelPress);
     map.on('dragstart', () => {
       if (store.getState().settings.followMe) store.getState().setSettings({ followMe: false });
+    });
+
+    // Heading-up: the map turns with the compass. Never while the user's fingers are on the map; a manual
+    // two-finger rotation switches the mode off (the user clearly wants a fixed orientation).
+    let userGesture = false;
+    map.on('dragstart', () => (userGesture = true));
+    map.on('dragend', () => (userGesture = false));
+    const rotateToHeading = (h: number | null) => {
+      if (h == null || userGesture) return;
+      const delta = Math.abs(((h - map.getBearing() + 540) % 360) - 180);
+      if (delta < 3) return;
+      if (store.getState().lite) map.setBearing(h);
+      else map.easeTo({ bearing: h, duration: 200, easing: (t) => t });
+    };
+    map.on('rotatestart', (e) => {
+      if (e.originalEvent && store.getState().settings.headingUp) {
+        store.getState().setSettings({ headingUp: false });
+        store.getState().toast('Карта по компасу выключена — вы повернули её вручную');
+      }
     });
 
     // Camera → store (crosshair readout, north arrow) throttled during pan so React doesn't re-render at 60fps.
@@ -758,6 +885,8 @@ export function MapView() {
       if (s.myPos !== p.myPos || s.compass !== p.compass) syncSelf();
       if (s.draft !== p.draft || s.tool !== p.tool) syncDraft();
       if (s.picked !== p.picked) syncPicked();
+      if (s.settings.headingUp && (s.compass !== p.compass || !p.settings.headingUp)) rotateToHeading(s.compass);
+      if (!s.settings.headingUp && p.settings.headingUp) map.easeTo({ bearing: 0, duration: anim(250) });
       if (s.settings.followMe && !p.settings.followMe && s.myPos) map.easeTo({ center: [s.myPos.lon, s.myPos.lat], duration: anim(250) });
     });
     // Age labels / TTL fade / stale players.
@@ -770,7 +899,10 @@ export function MapView() {
     mapRef.current = {
       flyTo: (lat, lon, zoom = 18) =>
         store.getState().lite ? map.jumpTo({ center: [lon, lat] as LngLatLike, zoom }) : map.flyTo({ center: [lon, lat] as LngLatLike, zoom, speed: 2.4, curve: 1.3 }),
-      resetNorth: () => map.easeTo({ bearing: 0, pitch: 0, duration: anim(250) }),
+      resetNorth: () => {
+        if (store.getState().settings.headingUp) store.getState().setSettings({ headingUp: false });
+        map.easeTo({ bearing: 0, pitch: 0, duration: anim(250) });
+      },
       bounds: () => {
         const b = map.getBounds();
         return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth(), zoom: map.getZoom() };
@@ -784,6 +916,7 @@ export function MapView() {
     return () => {
       unsub();
       clearInterval(ticker);
+      clearTimeout(unitsTimer);
       cancelPress();
       cancelAnimationFrame(raf);
       cancelAnimationFrame(resizeRaf);

@@ -41,9 +41,25 @@ function linearToUlaw(sample: number): number {
   return ~(sign | (exponent << 4) | mantissa) & 0xff;
 }
 
+/** Loads the capture worklet once per AudioContext; false where AudioWorklet is unsupported. */
+let workletReady: Promise<boolean> | null = null;
+function loadCaptureWorklet(ctx: AudioContext): Promise<boolean> {
+  if (!ctx.audioWorklet) return Promise.resolve(false);
+  workletReady ??= ctx.audioWorklet
+    .addModule(`${import.meta.env.BASE_URL}voice-capture-worklet.js`)
+    .then(() => true)
+    .catch((e) => {
+      console.warn('[voice] AudioWorklet unavailable, using ScriptProcessor', e);
+      return false;
+    });
+  return workletReady;
+}
+
 class VoiceManager {
   private stream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  /** Capture on the audio thread (AudioWorklet); ScriptProcessor only as a fallback for very old WebViews. */
+  private worklet: AudioWorkletNode | null = null;
   private procNode: ScriptProcessorNode | null = null;
   private muteGain: GainNode | null = null;
   private holding = false;
@@ -131,7 +147,7 @@ class VoiceManager {
 
   private async ensureMic(): Promise<boolean> {
     clearTimeout(this.micIdleTimer);
-    if (this.stream && this.stream.active && this.procNode) return true;
+    if (this.stream && this.stream.active && (this.worklet || this.procNode)) return true;
     if (!navigator.mediaDevices?.getUserMedia) {
       useStore.getState().toast('Микрофон недоступен (нужен HTTPS или разрешение)', 'error');
       return false;
@@ -148,9 +164,28 @@ class VoiceManager {
       });
       const ctx = getAudioContext();
       this.sourceNode = ctx.createMediaStreamSource(this.stream);
-      this.procNode = ctx.createScriptProcessor(2048, 1, 1);
       this.muteGain = ctx.createGain();
       this.muteGain.gain.value = 0;
+      this.muteGain.connect(ctx.destination);
+
+      if (await loadCaptureWorklet(ctx)) {
+        const node = new AudioWorkletNode(ctx, 'voice-capture', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+        node.port.onmessage = (e: MessageEvent<Uint8Array>) => {
+          const chIdx = VOICE_CHANNELS.indexOf(useStore.getState().voice.tx);
+          if (chIdx < 0 || !useStore.getState().voice.transmitting) return;
+          const frame = new Uint8Array(2 + e.data.length);
+          frame[0] = 0x56;
+          frame[1] = chIdx;
+          frame.set(e.data, 2);
+          socket.sendBinary(frame);
+        };
+        this.sourceNode.connect(node);
+        node.connect(this.muteGain); // keeps the node pulled by the graph; output is silent
+        this.worklet = node;
+        return true;
+      }
+
+      this.procNode = ctx.createScriptProcessor(2048, 1, 1);
 
       const inRate = ctx.sampleRate;
       const ratio = inRate / SAMPLE_RATE;
@@ -178,7 +213,6 @@ class VoiceManager {
 
       this.sourceNode.connect(this.procNode);
       this.procNode.connect(this.muteGain);
-      this.muteGain.connect(ctx.destination);
       return true;
     } catch {
       useStore.getState().toast('Разрешите доступ к микрофону для рации', 'error');
@@ -190,12 +224,15 @@ class VoiceManager {
     clearTimeout(this.micIdleTimer);
     try {
       this.sourceNode?.disconnect();
+      this.worklet?.port.postMessage('stop');
+      this.worklet?.disconnect();
       this.procNode?.disconnect();
       this.muteGain?.disconnect();
     } catch {
       /* ignore */
     }
     this.sourceNode = null;
+    this.worklet = null;
     this.procNode = null;
     this.muteGain = null;
     if (this.stream) {
@@ -232,6 +269,7 @@ class VoiceManager {
       return;
     }
 
+    this.worklet?.port.postMessage('start');
     socket.send({ t: 'voice.tx', channel: useStore.getState().voice.tx, active: true });
     if (isNative()) void Tactical.setTransmitting({ on: true }).catch(() => {});
   }
@@ -254,6 +292,7 @@ class VoiceManager {
   private finishStopTx() {
     const v = useStore.getState().voice;
     if (!v.transmitting) return;
+    this.worklet?.port.postMessage('stop');
     if (this.txOffset > 0) {
       const chIdx = VOICE_CHANNELS.indexOf(v.tx);
       if (chIdx >= 0) {

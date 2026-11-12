@@ -4,7 +4,12 @@
 import maplibregl, { type RequestTransformFunction, type StyleSpecification } from 'maplibre-gl';
 import type { BaseLayer } from '../store';
 
+/** Tiles seen while browsing: capped, oldest dropped first. */
 const CACHE = 'tactic-tiles-v1';
+/** Areas downloaded for offline play: never trimmed automatically. */
+const OFFLINE_CACHE = 'tactic-offline-v1';
+/** Browsing cache cap (~6000 tiles ≈ 100–250 MB depending on layer). */
+const MAX_BROWSE_TILES = 6000;
 const OFM = 'https://tiles.openfreemap.org';
 export const GLYPHS = `${OFM}/fonts/{fontstack}/{range}.pbf`;
 export const LABEL_FONT = ['Noto Sans Bold'];
@@ -55,25 +60,58 @@ export const BASE_LAYER_IDS = Object.keys(BASE_LAYERS) as BaseLayer[];
 
 // ---------- cache ----------
 let cachePromise: Promise<Cache | null> | null = null;
+let offlinePromise: Promise<Cache | null> | null = null;
+const open = (name: string) => ('caches' in window ? caches.open(name) : Promise.resolve(null)).catch(() => null);
 function tileCache(): Promise<Cache | null> {
-  cachePromise ??= ('caches' in window ? caches.open(CACHE) : Promise.resolve(null)).catch(() => null);
-  return cachePromise;
+  return (cachePromise ??= open(CACHE));
+}
+function offlineCache(): Promise<Cache | null> {
+  return (offlinePromise ??= open(OFFLINE_CACHE));
+}
+/** Look a URL up in both caches (downloaded area first). */
+async function cacheMatch(url: string): Promise<Response | undefined> {
+  return (await (await offlineCache())?.match(url)) ?? (await (await tileCache())?.match(url));
+}
+
+// FIFO trim of the browsing cache: Cache.keys() lists entries in insertion order.
+let putsSinceTrim = 0;
+let trimming = false;
+async function trimBrowseCache() {
+  if (trimming) return;
+  trimming = true;
+  try {
+    const cache = await tileCache();
+    if (!cache) return;
+    const keys = await cache.keys();
+    const extra = keys.length - MAX_BROWSE_TILES;
+    for (let i = 0; i < extra; i++) await cache.delete(keys[i]!);
+  } catch {
+    /* best effort */
+  } finally {
+    trimming = false;
+  }
 }
 
 /** Tiles/glyphs/sprites never change for a URL: cache first. Style/TileJSON may: network first. */
 async function cachedFetch(url: string, signal: AbortSignal, networkFirst: boolean): Promise<Response> {
   const cache = await tileCache();
   if (cache && !networkFirst) {
-    const hit = await cache.match(url);
+    const hit = await cacheMatch(url);
     if (hit) return hit;
   }
   try {
     const res = await fetch(url, { mode: 'cors', signal });
     if (!res.ok) throw new Error(`${res.status} ${url}`);
-    if (cache) void cache.put(url, res.clone()).catch(() => {});
+    if (cache) {
+      void cache.put(url, res.clone()).catch(() => {});
+      if (++putsSinceTrim >= 300) {
+        putsSinceTrim = 0;
+        void trimBrowseCache();
+      }
+    }
     return res;
   } catch (e) {
-    const hit = networkFirst && cache ? await cache.match(url) : undefined;
+    const hit = networkFirst && cache ? await cacheMatch(url) : undefined;
     if (hit) return hit;
     throw e;
   }
@@ -83,8 +121,6 @@ let registered = false;
 export function registerCacheProtocol() {
   if (registered) return;
   registered = true;
-  // Ask the browser not to evict downloaded map tiles under storage pressure (offline maps in the field).
-  void navigator.storage?.persist?.().catch(() => false);
   maplibregl.addProtocol('cache', async (params, ctrl) => {
     const url = params.url.slice('cache://'.length);
     const isJson = params.type === 'json';
@@ -151,7 +187,9 @@ export async function tileList(layer: BaseLayer, b: Bounds, zMin: number, zMax: 
 
 /** Download the game area for offline use. Keep it to the playing field: tile servers have fair-use limits. */
 export async function prefetchTiles(urls: string[], onProgress: (done: number, total: number) => void, signal: AbortSignal) {
-  const cache = await tileCache();
+  const cache = await offlineCache();
+  // Ask the browser not to evict the downloaded area under storage pressure.
+  void navigator.storage?.persist?.().catch(() => false);
   if (!cache) throw new Error('Cache Storage unavailable');
   let done = 0;
   const queue = [...urls];
@@ -174,10 +212,30 @@ export async function prefetchTiles(urls: string[], onProgress: (done: number, t
 
 export async function clearTileCache() {
   cachePromise = null;
-  await caches.delete(CACHE);
+  offlinePromise = null;
+  await Promise.all([caches.delete(CACHE), caches.delete(OFFLINE_CACHE)]);
 }
 
-export async function tileCacheCount(): Promise<number> {
-  const cache = await tileCache();
-  return cache ? (await cache.keys()).length : 0;
+export interface TileCacheStats {
+  /** tiles in the downloaded-area cache */
+  offline: number;
+  /** tiles cached while browsing (capped) */
+  browse: number;
+  /** whole-app storage use / quota in MB, when the browser reports it */
+  usedMb: number | null;
+  quotaMb: number | null;
+  /** storage is protected from automatic eviction */
+  persisted: boolean;
+}
+
+export async function tileCacheStats(): Promise<TileCacheStats> {
+  const [off, browse] = await Promise.all([offlineCache(), tileCache()]);
+  const est = await navigator.storage?.estimate?.().catch(() => null);
+  return {
+    offline: off ? (await off.keys()).length : 0,
+    browse: browse ? (await browse.keys()).length : 0,
+    usedMb: est?.usage != null ? Math.round(est.usage / 1048576) : null,
+    quotaMb: est?.quota != null ? Math.round(est.quota / 1048576) : null,
+    persisted: (await navigator.storage?.persisted?.().catch(() => false)) ?? false,
+  };
 }

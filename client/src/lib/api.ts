@@ -1,4 +1,4 @@
-import type { AuthVerifyResponse, JoinMatchRequest, JoinResponse, NetworkItem, Role, SelfInfo, Squad } from '@tactic/shared';
+import type { AuthVerifyResponse, JoinMatchRequest, JoinResponse, MatchTracks, NetworkItem, Role, SelfInfo, Squad } from '@tactic/shared';
 import { isNative } from './native';
 import { friendlyMessage } from './errors';
 
@@ -145,12 +145,15 @@ export const api = {
   networks: (t: Ticket) => call<{ ok: boolean; ts: number; networks: NetworkItem[] }>(t.server, '/api/networks', { token: t.ticket }),
   join: (t: Ticket, req: JoinMatchRequest) => call<JoinResponse>(t.server, '/api/auth/join', post(req, t.ticket)),
   leave: (s: Session) => call<{ ok: boolean }>(s.server, '/api/leave', { method: 'POST', token: s.token }),
+  /** Commander replay of the own network (uses the freshest stored token: it is refreshed on reconnect). */
+  matchTracks: (s: Session) => call<MatchTracks>(s.server, '/api/match/tracks', { token: loadSession()?.token ?? s.token }),
 
   adminListMatches: (server: string, admin: string) => call<AdminMatchItem[]>(server, '/api/admin/matches', { token: admin }),
   adminCreateMatch: (server: string, admin: string, body: { name: string; password: string; commandPin?: string }) =>
     call<{ id: string; code: string; name: string; commandPin: string }>(server, '/api/admin/matches', post(body, admin)),
   adminEndMatch: (server: string, admin: string, id: string) =>
     call<{ ok: boolean }>(server, `/api/admin/matches/${encodeURIComponent(id)}/end`, { method: 'POST', token: admin }),
+  adminTracks: (server: string, admin: string, id: string) => call<MatchTracks>(server, `/api/admin/matches/${encodeURIComponent(id)}/tracks`, { token: admin }),
   adminListUsers: (server: string, admin: string) => call<AdminUserItem[]>(server, '/api/admin/users', { token: admin }),
   adminSaveUser: (server: string, admin: string, body: { callsign: string; password: string; squad: Squad; role: Role }) =>
     call<{ id: string; callsign: string; updated?: boolean; created?: boolean }>(server, '/api/admin/users', post(body, admin)),

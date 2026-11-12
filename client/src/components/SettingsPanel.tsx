@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
-import { clearTileCache, prefetchTiles, tileCacheCount, tileList } from '../lib/tiles';
+import { clearTileCache, prefetchTiles, tileCacheStats, tileList, type TileCacheStats } from '../lib/tiles';
 import { isNative, Tactical } from '../lib/native';
 import { mapRef } from '../lib/mapRef';
 import { socket } from '../lib/socket';
@@ -16,13 +16,13 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
   const lite = useStore((st) => st.lite);
   const match = useStore((st) => st.match);
   const self = useStore((st) => st.self);
-  const [cached, setCached] = useState<number | null>(null);
+  const [cached, setCached] = useState<TileCacheStats | null>(null);
   const [progress, setProgress] = useState<string>('');
   const [batteryOk, setBatteryOk] = useState<boolean | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    void tileCacheCount().then(setCached);
+    void tileCacheStats().then(setCached);
     if (isNative()) void Tactical.isIgnoringBatteryOptimizations().then((r) => setBatteryOk(r.value)).catch(() => {});
   }, []);
 
@@ -48,7 +48,7 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
     } catch (e) {
       setProgress(friendlyError(e, 'Загрузка прервана. Попробуйте ещё раз.'));
     }
-    setCached(await tileCacheCount());
+    setCached(await tileCacheStats());
   }
 
   const num = (k: 'activeIntervalMs' | 'ecoIntervalMs' | 'idleIntervalMs', min: number, max: number) => (
@@ -147,7 +147,21 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
 
       <h4>ОФЛАЙН-КАРТА</h4>
       <div className="note">
-        В кэше: {cached ?? '…'} тайлов. Скачайте видимую область для текущего слоя ({s.baseLayer.toUpperCase()}) до выезда на полигон. Повторите для каждого нужного слоя.
+        {cached ? (
+          <>
+            Скачано для полигона: <b>{cached.offline}</b> тайлов (хранятся, пока не очистите) · просмотрено: {cached.browse} (старые удаляются сами)
+            {cached.usedMb != null && (
+              <>
+                {' '}· занято {cached.usedMb} МБ{cached.quotaMb ? ` из ${cached.quotaMb} МБ` : ''}
+              </>
+            )}
+            {cached.offline > 0 && !cached.persisted && ' · браузер может удалить кэш при нехватке места'}
+          </>
+        ) : (
+          'Подсчёт кэша…'
+        )}
+        <br />
+        Скачайте видимую область для текущего слоя ({s.baseLayer.toUpperCase()}) до выезда на полигон. Повторите для каждого нужного слоя.
       </div>
       <div className="row">
         <button onClick={downloadArea}>СКАЧАТЬ ВИДИМУЮ ОБЛАСТЬ</button>
@@ -155,7 +169,7 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
         <button
           onClick={async () => {
             await clearTileCache();
-            setCached(0);
+            setCached(await tileCacheStats());
             setProgress('');
           }}
         >

@@ -65,10 +65,12 @@ You host the server **yourself**, on a home PC or a rented VPS. No third-party c
 
 ### Map
 - **SAT** (Esri World Imagery satellite), **2D** (OpenFreeMap vector map), **3D** (buildings when tilted with two fingers) and **TOPO** (OpenTopoMap) layers.
-- **Offline map**: download the playing area before the game and the map works without internet.
+- **Offline map**: download the playing area before the game and the map works without internet. The downloaded area is stored separately and never removed automatically; the cache of merely viewed map tiles is capped and trims its oldest entries. Storage use is shown in Settings.
 - Live player positions: callsign, squad, role, facing direction (compass, corrected for magnetic declination), status and battery level. A player who has not reported for a while is shown faded.
 - UTM tactical grid of **50 / 100 / 250 m** with named sectors, plus a centre crosshair showing **MGRS** coordinates, range and bearing from you and from the nearest reference point.
 - **ME** button: centre the map on yourself and send a fresh position immediately.
+- When zoomed out, players and markers merge into numbered **clusters** — tap one to zoom in. Everything on the map is drawn by the GPU, so it stays smooth with dozens of players.
+- **Heading-up map** (off by default, MAP sheet): the map turns with the direction the phone faces. The N button returns to north up.
 
 ### Tactical markings
 | Tool | What it does | Who can use it |
@@ -94,6 +96,7 @@ Commanders are the **Squad leader** and **Commander** roles. Taking a command ro
 - Chat in **ALL / SQUAD / CMD** channels with automatic read-aloud of incoming messages (text-to-speech, Russian and English).
 - Player status **OK / HIT / MEDIC / OUT**: on a change, the squad gets a message with the location.
 - The commander's **briefing** is visible to everyone in the network.
+- **After-action replay**: every player's movement track on the map with seeking, ×10–×120 speed and a trail of the last 5 / 15 minutes or the whole path. Commanders open it in-game from the BRIEF tab; the administrator can open it for any network, including ended ones.
 - **TEAM** tab: who is online, who is offline, and a "НА КАРТУ" (show on map) button for any player.
 
 ### Android app

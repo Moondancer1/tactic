@@ -96,6 +96,10 @@ function LayersSheet({ onClose }: { onClose: () => void }) {
         <input type="checkbox" checked={settings.crosshair} onChange={(e) => setSettings({ crosshair: e.target.checked })} /> Centre crosshair with
         coordinates
       </label>
+      <label className="check">
+        <input type="checkbox" checked={settings.headingUp} onChange={(e) => setSettings({ headingUp: e.target.checked })} /> Карта по компасу (поворачивается
+        за направлением телефона). Кнопка N возвращает север вверх
+      </label>
       {decl != null && conv != null && (
         <>
           <h4>NORTH</h4>

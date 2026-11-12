@@ -295,6 +295,14 @@ export const CreateMatchSchema = z.object({
   password: z.string().trim().min(4, 'Пароль сети: минимум 4 символа').max(64),
 });
 
+/** After-action review: one member's sampled positions, `[lat, lon, ts]` in time order. */
+export interface MemberTrack {
+  callsign: string;
+  squad: Squad;
+  points: [number, number, number][];
+}
+export type MatchTracks = Record<string, MemberTrack>;
+
 export const UserPasswordSchema = z.string().min(6, 'Пароль бойца: минимум 6 символов').max(64);
 
 /** Which voice channels a member may join. */

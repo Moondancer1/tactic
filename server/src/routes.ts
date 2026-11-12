@@ -10,6 +10,8 @@ import {
   CreateMatchSchema,
   JoinMatchSchema,
   PosSchema,
+  isCommandRole,
+  type MemberTrack as TrackOut,
   ROLES,
   SQUADS,
   UserPasswordSchema,
@@ -113,6 +115,18 @@ async function finishJoin(match: MatchRow, user: UserRow): Promise<JoinResponse>
   };
 }
 
+/** `{memberId: {callsign, squad, points: [[lat, lon, ts], ...]}}`, points in time order. */
+function tracksOf(matchId: string, since: number): Record<string, TrackOut> {
+  const members = Object.fromEntries(store.members(matchId).map((m) => [m.id, m]));
+  const tracks: Record<string, TrackOut> = {};
+  for (const t of store.tracks(matchId, since)) {
+    const m = members[t.member_id] ?? store.userById(t.member_id);
+    const tr = (tracks[t.member_id] ??= { callsign: m?.callsign ?? '?', squad: m?.squad ?? 'none', points: [] });
+    tr.points.push([t.lat, t.lon, t.ts]);
+  }
+  return tracks;
+}
+
 /** APK served to players. Only a release build is ever published (debug builds are debuggable). */
 const APK_CANDIDATES = ['/app/apk/tactic.apk', path.resolve(process.cwd(), '../apk/out/tactic.apk')];
 
@@ -213,17 +227,10 @@ export function registerRoutes(app: FastifyInstance, hub: Hub) {
     return { ok: true };
   });
 
-  /** After-action review: sampled tracks of every member. */
+  /** After-action review: sampled tracks of every member (any network, including ended ones). */
   app.get<{ Params: { id: string }; Querystring: { since?: string } }>('/api/admin/matches/:id/tracks', async (req, reply) => {
     if (!requireAdmin(req, reply)) return;
-    const members = Object.fromEntries(store.members(req.params.id).map((m) => [m.id, m]));
-    const tracks: Record<string, { callsign: string; squad: string; points: [number, number, number][] }> = {};
-    for (const t of store.tracks(req.params.id, Number(req.query.since ?? 0) || 0)) {
-      const m = members[t.member_id] ?? store.userById(t.member_id);
-      const tr = (tracks[t.member_id] ??= { callsign: m?.callsign ?? '?', squad: m?.squad ?? '?', points: [] });
-      tr.points.push([t.lat, t.lon, t.ts]);
-    }
-    return tracks;
+    return tracksOf(req.params.id, Number(req.query.since ?? 0) || 0);
   });
 
   /** Webhook / direct API: inject tactical events (referee bot, scripted objectives, etc). */
@@ -288,6 +295,14 @@ export function registerRoutes(app: FastifyInstance, hub: Hub) {
       netPassLock.ok(key);
     }
     return finishJoin(match, user);
+  });
+
+  /** Movement tracks of the caller's own network, for commanders (in-game replay). */
+  app.get<{ Querystring: { since?: string } }>('/api/match/tracks', async (req, reply) => {
+    const self = await member(req, reply);
+    if (!self) return;
+    if (!isCommandRole(self.role) && self.squad !== 'command') return fail(reply, 403, 'forbidden', 'Разбор доступен командирам');
+    return tracksOf(self.matchId, Number(req.query.since ?? 0) || 0);
   });
 
   app.post('/api/leave', async (req, reply) => {
