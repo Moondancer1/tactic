@@ -13,6 +13,7 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
   const s = useStore((st) => st.settings);
   const set = useStore((st) => st.setSettings);
   const myPos = useStore((st) => st.myPos);
+  const lite = useStore((st) => st.lite);
   const match = useStore((st) => st.match);
   const self = useStore((st) => st.self);
   const [cached, setCached] = useState<number | null>(null);
@@ -74,6 +75,23 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
           <small>экран можно гасить</small>
         </button>
       </div>
+
+      <h4>ГРАФИКА</h4>
+      <div className="seg">
+        {(
+          [
+            ['auto', 'АВТО', 'по мощности телефона'],
+            ['full', 'ПОЛНАЯ', 'тени, анимации, чёткость'],
+            ['lite', 'ЛЁГКАЯ', 'для слабых телефонов'],
+          ] as const
+        ).map(([v, label, hint]) => (
+          <button key={v} className={s.graphics === v ? 'on' : ''} onClick={() => set({ graphics: v })}>
+            {label}
+            <small>{hint}</small>
+          </button>
+        ))}
+      </div>
+      {s.graphics === 'auto' && <div className="note">Сейчас: {lite ? 'лёгкая' : 'полная'}</div>}
 
       <h4>GPS</h4>
       <label className="check">

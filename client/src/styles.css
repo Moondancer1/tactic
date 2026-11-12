@@ -92,7 +92,7 @@ h4 { margin: 18px 0 8px; color: var(--dim); font-size: .8rem; letter-spacing: .1
 .rail-right { right: 8px; }
 .rail button {
   width: 54px; height: 54px; padding: 2px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  background: rgba(10, 14, 11, .9); border-color: rgba(255, 255, 255, .14); box-shadow: 0 2px 8px rgba(0, 0, 0, .45); backdrop-filter: blur(4px);
+  background: rgba(10, 14, 11, .9); border-color: rgba(255, 255, 255, .14); box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
 }
 .rail button .ic { font-size: 1.25rem; line-height: 1; }
 .rail button small { font-size: .58rem; letter-spacing: .06em; font-weight: 700; opacity: .85; }
@@ -139,7 +139,7 @@ h4 { margin: 18px 0 8px; color: var(--dim); font-size: .8rem; letter-spacing: .1
 
 /* centre crosshair + readout */
 .xhair { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; z-index: 700; pointer-events: none; }
-.xhair svg { width: 40px; height: 40px; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 1.5px #000) drop-shadow(0 0 1px #000); }
+.xhair svg { width: 40px; height: 40px; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 1.5px #000); }
 .readout {
   position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 750; pointer-events: none; max-width: calc(100% - 140px);
   background: rgba(10, 14, 11, .82); border: 1px solid rgba(255, 255, 255, .14); border-radius: 8px; padding: 4px 10px; font-size: .74rem;
@@ -170,7 +170,7 @@ h4 { margin: 18px 0 8px; color: var(--dim); font-size: .8rem; letter-spacing: .1
 /* ---------- drawer ---------- */
 .drawer {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 1100; background: var(--bg2); border-top: 1px solid var(--line);
-  border-radius: 14px 14px 0 0; display: flex; flex-direction: column; transition: height .18s ease; padding-bottom: env(safe-area-inset-bottom);
+  border-radius: 14px 14px 0 0; display: flex; flex-direction: column; transition: height .12s ease-out; padding-bottom: env(safe-area-inset-bottom);
   box-shadow: 0 -8px 30px rgba(0, 0, 0, .5); min-height: 0; overflow: hidden;
 }
 .drawer.d-min { height: calc(64px + env(safe-area-inset-bottom)); }
@@ -259,11 +259,11 @@ button.wide { flex: 1; }
 .maplibregl-ctrl-attrib-button { filter: invert(1); }
 .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { margin-bottom: calc(66px + env(safe-area-inset-bottom)); }
 .maplibregl-ctrl-scale { background: rgba(0, 0, 0, .6); color: #fff; border-color: #fff; }
-.mk-unit, .mk-contact, .mk-obj, .mk-point, .mk-trp, .route-arrow, .picked { background: none; border: none; cursor: pointer; }
+.mk-unit, .mk-contact, .mk-obj, .mk-point, .mk-trp, .picked { background: none; border: none; cursor: pointer; }
 .zone-label, .route-label, .seg-label { width: 0; height: 0; pointer-events: none; }
 
 .unit { position: relative; width: 40px; height: 40px; color: var(--c); }
-.unit .frame { position: absolute; left: 0; top: 6px; width: 40px; height: 35px; overflow: visible; filter: drop-shadow(0 0 2px #000) drop-shadow(0 0 1px #000); }
+.unit .frame { position: absolute; left: 0; top: 6px; width: 40px; height: 35px; overflow: visible; filter: drop-shadow(0 0 1.5px #000); }
 .unit .frame rect { fill: color-mix(in srgb, var(--c) 30%, #0b0f0c); stroke: var(--c); stroke-width: 2.5; }
 .unit .glyph { stroke: #fff; stroke-width: 2.2; fill: none; color: #fff; }
 /* heading is true; the map may be rotated, so subtract its bearing (set on the map container) */
@@ -297,9 +297,6 @@ button.wide { flex: 1; }
 .point.k-danger { color: var(--warn); }
 .point.k-waypoint { color: #fff; }
 
-.route-arrow { width: 14px; height: 14px; }
-.route-arrow.end { width: 22px; height: 22px; }
-.arrowhead { display: block; width: 100%; height: 100%; fill: currentColor; stroke: #000; stroke-width: 1; }
 .trp { position: relative; width: 32px; height: 32px; color: #5eead4; }
 .trp svg { width: 32px; height: 32px; fill: rgba(0, 0, 0, .35); stroke: currentColor; stroke-width: 2.5; filter: drop-shadow(0 0 2px #000); }
 .trp .lbl { color: #5eead4; font-size: 12px; letter-spacing: .06em; }
@@ -410,4 +407,16 @@ button.wide { flex: 1; }
   .ptt-wrap { bottom: 30px; }
   .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { margin-bottom: 0; }
   .draftbar, .ruler { bottom: 20px; right: 150px; max-width: 560px; }
+}
+
+/* ---------- lite graphics (weak phones / chosen in Settings): no per-frame filters, shadows or transitions ---------- */
+html.lite *, html.lite *::before, html.lite *::after { transition: none !important; }
+html.lite .unit .frame, html.lite .contact svg, html.lite .point svg, html.lite .trp svg, html.lite .xhair svg { filter: none; }
+html.lite .unit.stale { filter: none; }
+html.lite .rail button, html.lite .drawer, html.lite .ptt, html.lite .dot.ok, html.lite .ptt-ch button.on { box-shadow: none; }
+html.lite .ptt.tx { box-shadow: 0 0 0 6px rgba(255, 90, 78, .35); transform: none; }
+
+/* System "reduce motion": no UI transitions or blinking (map animations are skipped by MapLibre itself). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation-duration: 0s !important; animation-iteration-count: 1 !important; }
 }

@@ -80,10 +80,6 @@ export function pointHtml(m: Marker): string {
 <span class="lbl">${esc(m.label || m.kind.toUpperCase())}</span></div>`;
 }
 
-export function arrowHtml(color: string, angle: number): string {
-  return `<svg class="arrowhead" viewBox="-10 -10 20 20" style="transform:rotate(${angle}deg);color:${color}"><path d="M0 -9L8 7L0 3L-8 7Z"/></svg>`;
-}
-
 /** Target Reference Point: named landmark used for voice target indication / fire correction. */
 export function trpHtml(m: Marker): string {
   return `<div class="trp"><svg viewBox="-16 -16 32 32"><circle r="9"/><path d="M0 -15V-5M0 5V15M-15 0H-5M5 0H15"/></svg>

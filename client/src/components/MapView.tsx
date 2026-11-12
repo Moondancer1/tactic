@@ -5,7 +5,7 @@ import maplibregl, { type GeoJSONSource, type LngLatLike } from 'maplibre-gl';
 import { SQUAD_META, isCommandRole, type Marker, type PlayerState, type Route, type Zone } from '@tactic/shared';
 import { useStore, type BaseLayer } from '../store';
 import { BASE_LAYERS, LABEL_FONT, registerCacheProtocol, transformRequest } from '../lib/tiles';
-import { arrowHtml, contactHtml, esc, objectiveHtml, playerHtml, pointHtml, trpHtml, vertexHtml } from '../lib/symbols';
+import { contactHtml, esc, objectiveHtml, playerHtml, pointHtml, trpHtml, vertexHtml } from '../lib/symbols';
 import { bearing, distance, fmtAz, fmtDist, mgrs } from '../lib/geo';
 import { buildGrid } from '../lib/grid';
 import { callout, calloutText } from '../lib/callout';
@@ -61,6 +61,31 @@ function circlePolygon(lat: number, lon: number, r: number): GeoJSON.Feature {
   return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [pts] } };
 }
 
+/**
+ * Phones report devicePixelRatio 2.5–3.5: the map would render 6–12x the pixels of a 1x screen.
+ * Full graphics caps at 2 (sharp enough outdoors), lite renders at 1x.
+ */
+const pixelRatioFor = (lite: boolean) => Math.min(window.devicePixelRatio || 1, lite ? 1 : 2);
+
+/** White arrow glyph as an SDF image (tinted per route via icon-color). `up`: arrowhead, else chevron →. */
+function arrowImage(up: boolean) {
+  const size = 32;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  g.translate(size / 2, size / 2);
+  if (!up) g.rotate(Math.PI / 2);
+  g.fillStyle = '#fff';
+  g.beginPath();
+  g.moveTo(0, -12);
+  g.lineTo(10, 10);
+  g.lineTo(0, 4);
+  g.lineTo(-10, 10);
+  g.closePath();
+  g.fill();
+  return g.getImageData(0, 0, size, size);
+}
+
 function el(className: string, html: string): HTMLDivElement {
   const d = document.createElement('div');
   d.className = className;
@@ -82,6 +107,8 @@ export function MapView() {
 
   useEffect(() => {
     const store = useStore;
+    /** Animation length: instant in lite graphics. */
+    const anim = (ms: number) => (store.getState().lite ? 0 : ms);
     registerCacheProtocol();
     const s0 = store.getState();
     const container = host.current!;
@@ -99,6 +126,7 @@ export function MapView() {
       attributionControl: { compact: true },
       fadeDuration: 0,
       clickTolerance: 4,
+      pixelRatio: pixelRatioFor(s0.lite),
     });
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric', maxWidth: 120 }), 'bottom-left');
 
@@ -160,6 +188,8 @@ export function MapView() {
         ['cross-violet', '#c084fc', true],
       ] as const)
         if (!map.hasImage(id)) map.addImage(id, hatchImage(color, cross));
+      if (!map.hasImage('route-chevron')) map.addImage('route-chevron', arrowImage(false), { sdf: true });
+      if (!map.hasImage('route-head')) map.addImage('route-head', arrowImage(true), { sdf: true });
       for (const id of Object.keys(data)) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: data[id]! });
 
       const vis = store.getState().settings.grid ? 'visible' : 'none';
@@ -194,8 +224,25 @@ export function MapView() {
           filter: ['==', ['get', 'dash'], dash],
           paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, ...(arr ? { 'line-dasharray': [...arr] } : {}) },
         });
-      map.addLayer({ id: 'routes-casing', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000', 'line-width': 7, 'line-opacity': 0.45 } });
-      map.addLayer({ id: 'routes-line', type: 'line', source: 'routes', paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-dasharray': [3, 2] } });
+      const isLine: maplibregl.FilterSpecification = ['==', ['geometry-type'], 'LineString'];
+      map.addLayer({ id: 'routes-casing', type: 'line', source: 'routes', filter: isLine, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000', 'line-width': 7, 'line-opacity': 0.45 } });
+      map.addLayer({ id: 'routes-line', type: 'line', source: 'routes', filter: isLine, paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-dasharray': [3, 2] } });
+      map.addLayer({
+        id: 'routes-chevrons',
+        type: 'symbol',
+        source: 'routes',
+        filter: isLine,
+        layout: { 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': 'route-chevron', 'icon-size': 0.55, 'icon-allow-overlap': true, 'icon-rotation-alignment': 'map' },
+        paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#000', 'icon-halo-width': 1.5 },
+      });
+      map.addLayer({
+        id: 'routes-heads',
+        type: 'symbol',
+        source: 'routes',
+        filter: ['==', ['geometry-type'], 'Point'],
+        layout: { 'icon-image': 'route-head', 'icon-size': 0.8, 'icon-rotate': ['get', 'brg'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true },
+        paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#000', 'icon-halo-width': 1.5 },
+      });
       map.addLayer({ id: 'acc-fill', type: 'fill', source: 'acc', paint: { 'fill-color': '#9bd35a', 'fill-opacity': 0.08 } });
       map.addLayer({ id: 'acc-line', type: 'line', source: 'acc', paint: { 'line-color': '#9bd35a', 'line-width': 1 } });
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#9bd35a', 'fill-opacity': 0.12 } });
@@ -205,18 +252,29 @@ export function MapView() {
     };
     map.on('style.load', () => {
       installOverlays();
-      updateGrid();
+      updateGrid(true);
     });
     // A missing sprite icon or tile must not spam the console / break the style.
     map.on('styleimagemissing', () => {});
     map.on('error', (e) => console.debug('[map]', e.error?.message));
 
     // ---------- grid ----------
-    const updateGrid = () => {
-      const st = store.getState().settings;
-      if (!st.grid || !map.getSource('grid')) return;
+    // Built for an area 3 screens wide around the centre. While dragging, it is rebuilt only once the
+    // view has moved most of a screen away (or zoom changed enough to change density), so a long swipe
+    // never outruns the grid and short pans cost nothing.
+    let gridAt: { center: maplibregl.LngLat; zoom: number; bearing: number; step: number; lite: boolean } | null = null;
+    let lastGridTs = 0;
+    const updateGrid = (force = false) => {
+      const s = store.getState();
+      if (!s.settings.grid || !map.getSource('grid')) return;
       const { clientWidth: w, clientHeight: h } = container;
-      const pad = 0.25;
+      const zoom = map.getZoom();
+      if (!force && gridAt && gridAt.step === s.settings.gridStep && gridAt.lite === s.lite && Math.abs(gridAt.zoom - zoom) < 0.5 && Math.abs(gridAt.bearing - map.getBearing()) < 10) {
+        const p = map.project(gridAt.center);
+        if (Math.abs(p.x - w / 2) < w * 0.8 && Math.abs(p.y - h / 2) < h * 0.8) return;
+      }
+      lastGridTs = performance.now();
+      const pad = 1;
       const corners = [
         [-w * pad, -h * pad],
         [w * (1 + pad), -h * pad],
@@ -227,15 +285,16 @@ export function MapView() {
         return [p.lat, p.lng] as LL;
       });
       const c = map.getCenter();
-      const mpp = (40075016.686 * Math.cos((c.lat * Math.PI) / 180)) / (512 * 2 ** map.getZoom());
-      const g = buildGrid({ center: [c.lat, c.lng], corners, mpp }, st.gridStep);
+      const mpp = (40075016.686 * Math.cos((c.lat * Math.PI) / 180)) / (512 * 2 ** zoom);
+      const g = buildGrid({ center: [c.lat, c.lng], corners, mpp, viewSpan: Math.max(w, h) * mpp, cellLabels: !s.lite }, s.settings.gridStep);
       setData('grid', g.lines);
       setData('grid-labels', g.labels);
+      gridAt = { center: c, zoom, bearing: map.getBearing(), step: s.settings.gridStep, lite: s.lite };
     };
     const setGridVisible = (on: boolean) => {
       for (const id of ['grid-minor', 'grid-major', 'grid-cell-labels', 'grid-km-labels'])
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
-      if (on) updateGrid();
+      if (on) updateGrid(true);
     };
 
     // ---------- DOM markers ----------
@@ -299,27 +358,23 @@ export function MapView() {
       }
     };
 
+    // Lines, chevrons along them and the end arrowhead are GL layers (GPU), not DOM markers per segment.
     const syncRoutes = (routes: Record<string, Route>) => {
-      setData(
-        'routes',
-        fc(Object.values(routes).map((r) => ({ type: 'Feature', properties: { id: r.id, color: SQUAD_META[r.squad].color }, geometry: { type: 'LineString', coordinates: r.points.map(lngLat) } }))),
-      );
+      const features: GeoJSON.Feature[] = [];
+      for (const r of Object.values(routes)) {
+        const color = SQUAD_META[r.squad].color;
+        features.push({ type: 'Feature', properties: { id: r.id, color }, geometry: { type: 'LineString', coordinates: r.points.map(lngLat) } });
+        const a = r.points[r.points.length - 2]!;
+        const b = r.points[r.points.length - 1]!;
+        features.push({ type: 'Feature', properties: { id: r.id, color, brg: bearing(a, b) }, geometry: { type: 'Point', coordinates: lngLat(b) } });
+      }
+      setData('routes', fc(features));
       for (const ms of routeDecor.values()) ms.forEach((m) => m.remove());
       routeDecor.clear();
       for (const r of Object.values(routes)) {
+        if (!r.label) continue;
         const color = SQUAD_META[r.squad].color;
-        const ms: maplibregl.Marker[] = [];
-        // Chevron at each segment midpoint and an arrowhead at the end, rotated with the map.
-        for (let i = 1; i < r.points.length; i++) {
-          const a = r.points[i - 1]!;
-          const b = r.points[i]!;
-          const isLast = i === r.points.length - 1;
-          const at: LL = isLast ? b : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-          const m = domMarker(`route-arrow${isLast ? ' end' : ''}`, arrowHtml(color, 0), at, { rotation: bearing(a, b), rotationAlignment: 'map', pitchAlignment: 'map' });
-          ms.push(m);
-        }
-        if (r.label) ms.push(domMarker('route-label', `<span style="border-color:${color}">${esc(r.label)}</span>`, r.points[0]!));
-        routeDecor.set(r.id, ms);
+        routeDecor.set(r.id, [domMarker('route-label', `<span style="border-color:${color}">${esc(r.label)}</span>`, r.points[0]!)]);
       }
     };
 
@@ -400,7 +455,7 @@ export function MapView() {
         centeredOnce = true;
         map.jumpTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), 17) });
       } else if (s.settings.followMe) {
-        map.easeTo({ center: [pos.lon, pos.lat], duration: 400 });
+        map.easeTo({ center: [pos.lon, pos.lat], duration: anim(250) });
       }
     };
 
@@ -644,12 +699,37 @@ export function MapView() {
         container.style.setProperty('--map-brg', `${b}deg`);
       }
       const now = performance.now();
-      if (!force && now - lastViewTs < 120) return;
+      if (!force && now - lastViewTs < (store.getState().lite ? 250 : 120)) return;
       lastViewTs = now;
       const c = map.getCenter();
       store.setState({ view: { lat: c.lat, lon: c.lng, zoom: map.getZoom(), bearing: b, pitch: map.getPitch() } });
     };
-    map.on('move', () => (raf ||= requestAnimationFrame(() => publishView(false))));
+    map.on('move', () => {
+      raf ||= requestAnimationFrame(() => publishView(false));
+      if (performance.now() - lastGridTs > 200) updateGrid();
+    });
+    // FPS probe: frames delivered while the user drags the map. Two slow drags in a row (< 30 fps)
+    // let 'auto' graphics drop to lite. Only user gestures count (no programmatic fly-to).
+    let probe: { t0: number; frames: number; raf: number } | null = null;
+    let slowDrags = 0;
+    const probeTick = () => {
+      if (!probe) return;
+      probe.frames++;
+      probe.raf = requestAnimationFrame(probeTick);
+    };
+    map.on('dragstart', () => {
+      probe = { t0: performance.now(), frames: 0, raf: requestAnimationFrame(probeTick) };
+    });
+    map.on('dragend', () => {
+      if (!probe) return;
+      cancelAnimationFrame(probe.raf);
+      const ms = performance.now() - probe.t0;
+      const fps = (probe.frames * 1000) / ms;
+      probe = null;
+      if (ms < 700) return;
+      slowDrags = fps < 30 ? slowDrags + 1 : 0;
+      if (slowDrags >= 2) store.getState().reportSlowMap();
+    });
     map.on('moveend', () => {
       publishView(true);
       updateGrid();
@@ -666,7 +746,11 @@ export function MapView() {
     const unsub = store.subscribe((s, p) => {
       if (s.settings.baseLayer !== p.settings.baseLayer) setBase(s.settings.baseLayer);
       if (s.settings.grid !== p.settings.grid) setGridVisible(s.settings.grid);
-      if (s.settings.gridStep !== p.settings.gridStep) updateGrid();
+      if (s.settings.gridStep !== p.settings.gridStep) updateGrid(true);
+      if (s.lite !== p.lite) {
+        map.setPixelRatio(pixelRatioFor(s.lite));
+        updateGrid(true);
+      }
       if (s.zones !== p.zones) syncZones(s.zones);
       if (s.routes !== p.routes) syncRoutes(s.routes);
       if (s.markers !== p.markers) syncMarkers(s.markers);
@@ -674,7 +758,7 @@ export function MapView() {
       if (s.myPos !== p.myPos || s.compass !== p.compass) syncSelf();
       if (s.draft !== p.draft || s.tool !== p.tool) syncDraft();
       if (s.picked !== p.picked) syncPicked();
-      if (s.settings.followMe && !p.settings.followMe && s.myPos) map.easeTo({ center: [s.myPos.lon, s.myPos.lat], duration: 400 });
+      if (s.settings.followMe && !p.settings.followMe && s.myPos) map.easeTo({ center: [s.myPos.lon, s.myPos.lat], duration: anim(250) });
     });
     // Age labels / TTL fade / stale players.
     const ticker = window.setInterval(() => {
@@ -684,14 +768,17 @@ export function MapView() {
     }, 15_000);
 
     mapRef.current = {
-      flyTo: (lat, lon, zoom = 18) => map.flyTo({ center: [lon, lat] as LngLatLike, zoom }),
-      resetNorth: () => map.easeTo({ bearing: 0, pitch: 0, duration: 400 }),
+      flyTo: (lat, lon, zoom = 18) =>
+        store.getState().lite ? map.jumpTo({ center: [lon, lat] as LngLatLike, zoom }) : map.flyTo({ center: [lon, lat] as LngLatLike, zoom, speed: 2.4, curve: 1.3 }),
+      resetNorth: () => map.easeTo({ bearing: 0, pitch: 0, duration: anim(250) }),
       bounds: () => {
         const b = map.getBounds();
         return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth(), zoom: map.getZoom() };
       },
     };
-    const ro = new ResizeObserver(() => map.resize());
+    // Resize at most once per frame (rotation / split-view drag fire many observer callbacks).
+    let resizeRaf = 0;
+    const ro = new ResizeObserver(() => (resizeRaf ||= requestAnimationFrame(() => ((resizeRaf = 0), map.resize()))));
     ro.observe(container);
 
     return () => {
@@ -699,6 +786,8 @@ export function MapView() {
       clearInterval(ticker);
       cancelPress();
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(resizeRaf);
+      if (probe) cancelAnimationFrame(probe.raf);
       ro.disconnect();
       mapRef.current = null;
       map.remove();

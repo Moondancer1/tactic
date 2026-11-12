@@ -100,6 +100,7 @@ Commanders are the **Squad leader** and **Commander** roles. Taking a command ro
 - Works with the **screen off**: a background service sends GPS by itself and keeps voice running.
 - Power modes: **COMBAT** (position every 2 s, screen stays on) and **ECO** (every 5 s). When the player is standing still or the screen is off, every 15 s.
 - Only fresh, accurate positions are shared with the team — no GPS "jumps".
+- Graphics **AUTO / FULL / LITE**: on a weak phone — or as soon as the map starts to stutter while panning — the app switches to lite graphics by itself (fewer pixels, no shadows or animations).
 
 ---
 

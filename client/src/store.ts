@@ -16,6 +16,8 @@ import { sfx, speakTts } from './lib/audio';
 import { friendlyMessage } from './lib/errors';
 
 export type PowerMode = 'combat' | 'eco';
+/** auto = lite on weak hardware or when the map is measured to stutter. */
+export type Graphics = 'auto' | 'full' | 'lite';
 export type BaseLayer = 'sat' | 'map2d' | 'map3d' | 'topo';
 const BASE_LAYERS: BaseLayer[] = ['sat', 'map2d', 'map3d', 'topo'];
 export type Tool = 'pan' | 'zone' | 'route' | 'objective' | 'contact' | 'waypoint' | 'trp' | 'measure';
@@ -42,6 +44,7 @@ export interface Settings {
   crosshair: boolean;
   /** ruler starts at my GPS position */
   rulerFromMe: boolean;
+  graphics: Graphics;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -60,7 +63,20 @@ const DEFAULT_SETTINGS: Settings = {
   gridStep: 100,
   crosshair: true,
   rulerFromMe: true,
+  graphics: 'auto',
 };
+
+/**
+ * Weak device guess: little RAM (Chrome/WebView report deviceMemory, capped at 8) or few CPU cores.
+ * 'auto' also switches to lite at runtime when map panning is measured below ~30 fps (MapView).
+ */
+const WEAK_DEVICE = (() => {
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  return (nav.deviceMemory ?? 8) <= 3 || (navigator.hardwareConcurrency ?? 8) <= 4;
+})();
+let measuredSlow = false;
+const liteFor = (g: Graphics) => g === 'lite' || (g === 'auto' && (WEAK_DEVICE || measuredSlow));
+const applyLiteClass = (lite: boolean) => document.documentElement.classList.toggle('lite', lite);
 
 const SETTINGS_KEY = 'tactic.settings.v2';
 function loadSettings(): Settings {
@@ -68,6 +84,7 @@ function loadSettings(): Settings {
     const s: Settings = { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
     if (!BASE_LAYERS.includes(s.baseLayer)) s.baseLayer = s.baseLayer === ('osm' as BaseLayer) ? 'map2d' : 'sat';
     if (![50, 100, 250].includes(s.gridStep)) s.gridStep = 100;
+    if (!['auto', 'full', 'lite'].includes(s.graphics)) s.graphics = 'auto';
     return s;
   } catch {
     return DEFAULT_SETTINGS;
@@ -125,6 +142,8 @@ interface State {
   myPos: MyPos | null;
   compass: number | null;
   settings: Settings;
+  /** effective lite graphics (from settings.graphics + device detection) */
+  lite: boolean;
   tool: Tool;
   drawer: { open: 'min' | 'mid' | 'max'; tab: DrawerTab };
   /** point picked on the map (long-press) for spot reports */
@@ -141,11 +160,16 @@ interface State {
   setTool(t: Tool): void;
   setVoice(p: Partial<VoiceState>): void;
   toast(text: string, kind?: Toast['kind']): void;
+  /** MapView measured choppy panning: in 'auto' mode switch to lite graphics. */
+  reportSlowMap(): void;
   reset(): void;
 }
 
 const byId = <T extends { id: string }>(xs: T[]) => Object.fromEntries(xs.map((x) => [x.id, x]));
 let toastSeq = 0;
+
+const initialSettings = loadSettings();
+applyLiteClass(liteFor(initialSettings.graphics));
 
 export const useStore = create<State>((set, get) => ({
   self: null,
@@ -162,7 +186,8 @@ export const useStore = create<State>((set, get) => ({
   briefing: { text: '', by: '', ts: 0 },
   myPos: null,
   compass: null,
-  settings: loadSettings(),
+  settings: initialSettings,
+  lite: liteFor(initialSettings.graphics),
   tool: 'pan',
   drawer: { open: 'min', tab: 'chat' },
   picked: null,
@@ -272,8 +297,14 @@ export const useStore = create<State>((set, get) => ({
 
   setSettings(p) {
     const settings = { ...get().settings, ...p };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    set({ settings });
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      /* storage full / unavailable: keep the setting for this session */
+    }
+    const lite = liteFor(settings.graphics);
+    applyLiteClass(lite);
+    set({ settings, lite });
   },
   setDrawer(p) {
     const drawer = { ...get().drawer, ...p };
@@ -289,6 +320,13 @@ export const useStore = create<State>((set, get) => ({
     const id = ++toastSeq;
     set({ toasts: [...get().toasts.slice(-3), { id, text, kind }] });
     setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== id) }), kind === 'error' ? 6000 : 4000);
+  },
+  reportSlowMap() {
+    if (measuredSlow || get().settings.graphics !== 'auto' || get().lite) return;
+    measuredSlow = true;
+    applyLiteClass(true);
+    set({ lite: true });
+    get().toast('Карта тормозит — включена облегчённая графика (Настройки → ГРАФИКА)');
   },
   reset() {
     set({

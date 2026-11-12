@@ -100,6 +100,7 @@ Komandirlər — **Squad leader** və **Commander** rollarıdır. Oyunda komandi
 - **Ekran sönülü olanda** da işləyir: fon xidməti GPS-i özü göndərir və səsli rabitəni saxlayır.
 - Enerji rejimləri: **COMBAT** (hər 2 saniyədən bir mövqe, ekran sönmür) və **ECO** (hər 5 saniyədən bir). Döyüşçü yerində dayananda və ya ekran sönülü olanda — hər 15 saniyədən bir.
 - Komandaya yalnız təzə və dəqiq koordinatlar göndərilir, GPS «sıçrayışları» olmadan.
+- Qrafika **AVTO / TAM / YÜNGÜL**: zəif telefonda — və ya xəritə sürüşdürüləndə ləngiməyə başlayanda — tətbiq özü yüngül qrafikaya keçir (daha az piksel, kölgə və animasiya olmadan).
 
 ---
 
