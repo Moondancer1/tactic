@@ -12,6 +12,7 @@ brauzerdə və ekran sönülü olanda da işləyən Android tətbiqində.
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-339933?logo=node.js&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-6.0%2B-3DDC84?logo=android&logoColor=white)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)](LICENSE)
 
 [Русский](README.md) · [English](README.en.md) · **Azərbaycanca**
 
@@ -475,4 +476,17 @@ tactic/
 
 ## Lisenziya
 
-Lisenziya hələ seçilməyib. Lisenziya olmadıqda kodun bütün hüquqları müəllifə məxsusdur. Layihədən və ya onun bir hissəsindən istifadə etmək istəyirsinizsə, repozitoriyanın müəllifi ilə əlaqə saxlayın.
+Layihə **[PolyForm Noncommercial 1.0.0](LICENSE)** lisenziyası ilə yayılır.
+
+| ✅ Olar — pulsuz və icazəsiz | ❌ Müəllifin yazılı icazəsi olmadan olmaz |
+|---|---|
+| Özünüz, komandanız və həvəskar oyunlar üçün istifadə etmək | Proqramı və ya onun dəyişdirilmiş versiyasını satmaq |
+| Öz serverinizdə yerləşdirmək | Onun əsasında pullu xidmət və ya abunə yaratmaq |
+| Kodu öyrənmək və dəyişdirmək | Kommersiya fəaliyyətində istifadə etmək, məsələn, pullu poliqonda |
+| Nüsxələri, o cümlədən dəyişdirilmişləri paylaşmaq — [LICENSE](LICENSE) faylını və müəllifin göstərildiyi `Required Notice` sətrini saxlamaq şərtilə | Müəllifin adını və lisenziya şərtlərini silmək |
+
+Qeyri-kommersiya təşkilatları — xeyriyyə, təhsil və dövlət qurumları — da pulsuz istifadə edə bilər.
+
+Tactic-dən kommersiya məqsədilə istifadə etmək istəyirsiniz? Ayrıca icazəni müzakirə etmək üçün müəlliflə [GitHub](https://github.com/Moondancer1) vasitəsilə əlaqə saxlayın.
+
+Copyright © 2026 [Moondancer1](https://github.com/Moondancer1).

@@ -12,6 +12,7 @@
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-339933?logo=node.js&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-6.0%2B-3DDC84?logo=android&logoColor=white)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)](LICENSE)
 
 **Русский** · [English](README.en.md) · [Azərbaycanca](README.az.md)
 
@@ -471,4 +472,17 @@ tactic/
 
 ## Лицензия
 
-Лицензия пока не выбрана. Без лицензии все права на код принадлежат автору. Если хотите использовать проект или его часть — свяжитесь с автором репозитория.
+Проект распространяется по лицензии **[PolyForm Noncommercial 1.0.0](LICENSE)**.
+
+| ✅ Можно — бесплатно и без спроса | ❌ Нельзя без письменного разрешения автора |
+|---|---|
+| Пользоваться для себя, своей команды и любительских игр | Продавать программу или её изменённую версию |
+| Разворачивать на своём сервере | Делать на её основе платный сервис или подписку |
+| Изучать и изменять код | Использовать в коммерческой деятельности, например на платном полигоне |
+| Делиться копиями, в том числе изменёнными, сохраняя файл [LICENSE](LICENSE) и строку `Required Notice` с автором | Убирать указание автора и условия лицензии |
+
+Некоммерческие организации — благотворительные, учебные, государственные — тоже могут пользоваться бесплатно.
+
+Хотите использовать Tactic коммерчески? Свяжитесь с автором через [GitHub](https://github.com/Moondancer1) — обсудим отдельное разрешение.
+
+Copyright © 2026 [Moondancer1](https://github.com/Moondancer1).

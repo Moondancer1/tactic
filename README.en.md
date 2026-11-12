@@ -12,6 +12,7 @@ in the browser and in an Android app that keeps working with the screen off.
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-339933?logo=node.js&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-6.0%2B-3DDC84?logo=android&logoColor=white)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)](LICENSE)
 
 [Русский](README.md) · **English** · [Azərbaycanca](README.az.md)
 
@@ -475,4 +476,17 @@ The detailed documents are in Russian.
 
 ## License
 
-No license has been chosen yet. Without a license, all rights to the code belong to the author. If you would like to use the project or any part of it, please contact the repository author.
+This project is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+| ✅ Allowed — free, no permission needed | ❌ Not allowed without the author's written permission |
+|---|---|
+| Using it for yourself, your team and amateur games | Selling the software or a modified version of it |
+| Hosting it on your own server | Building a paid service or subscription on top of it |
+| Studying and modifying the code | Using it in a commercial business, e.g. a paid airsoft field |
+| Sharing copies, including modified ones, as long as the [LICENSE](LICENSE) file and the `Required Notice` line with the author are kept | Removing the author credit or the license terms |
+
+Noncommercial organisations — charities, educational and government institutions — may also use it free of charge.
+
+Want to use Tactic commercially? Contact the author on [GitHub](https://github.com/Moondancer1) to discuss a separate permission.
+
+Copyright © 2026 [Moondancer1](https://github.com/Moondancer1).

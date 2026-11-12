@@ -1,6 +1,7 @@
 {
   "name": "tactic",
   "version": "0.1.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "description": "Self-hosted tactical situational awareness + PTT voice intercom for airsoft",
   "workspaces": [
