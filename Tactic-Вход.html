@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>TACTIC — Вход на сервер</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #0b0e0c;
+        color: #e5ebe6;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        text-align: center;
+        padding: 20px;
+      }
+      .card {
+        background: #131815;
+        border: 1px solid #2b362f;
+        border-radius: 10px;
+        padding: 24px;
+        max-width: 380px;
+        width: 100%;
+      }
+      h1 {
+        margin: 0 0 12px;
+        color: #9bd35a;
+        font-size: 22px;
+        letter-spacing: 0.08em;
+      }
+      p {
+        margin: 8px 0;
+        font-size: 14px;
+        color: #9ca8a0;
+      }
+      a.btn, button.btn {
+        display: inline-block;
+        margin-top: 14px;
+        padding: 12px 20px;
+        background: #9bd35a;
+        color: #0b0e0c;
+        font-weight: 700;
+        text-decoration: none;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 14px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      input.url {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 12px;
+        padding: 10px 12px;
+        background: #0b0e0c;
+        color: #e5ebe6;
+        border: 1px solid #2b362f;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>TACTIC C2</h1>
+      <p id="status">Укажите адрес вашего сервера TACTIC:</p>
+      <form id="form">
+        <input id="serverUrl" class="url" type="url" placeholder="https://tactic.example.com" required />
+        <button class="btn" type="submit">ОТКРЫТЬ TACTIC</button>
+      </form>
+    </div>
+    <script>
+      (function () {
+        const KEY = 'tactic_launcher_server_url';
+        const input = document.getElementById('serverUrl');
+        const status = document.getElementById('status');
+        const form = document.getElementById('form');
+        const saved = localStorage.getItem(KEY) || '';
+        if (saved) {
+          input.value = saved;
+          status.textContent = 'Сохранённый сервер: ' + saved;
+        }
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          const raw = (input.value || '').trim().replace(/\/+$/, '');
+          if (!/^https?:\/\//i.test(raw)) {
+            status.textContent = 'Введите корректный URL (с https:// или http://)';
+            return;
+          }
+          localStorage.setItem(KEY, raw);
+          status.textContent = 'Переход на ' + raw + ' …';
+          window.location.assign(raw);
+        });
+      })();
+    </script>
+  </body>
+</html>

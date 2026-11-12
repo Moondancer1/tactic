@@ -1,0 +1,12 @@
+# Overlay for a server where ports 80/443 already belong to another reverse proxy.
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+# Our Caddy then serves plain HTTP on 127.0.0.1:${TACTIC_HTTP_PORT:-8088}; the existing
+# proxy terminates TLS for ${DOMAIN} and forwards there (WebSocket upgrade required).
+services:
+  caddy:
+    ports: !override
+      - "127.0.0.1:${TACTIC_HTTP_PORT:-8088}:80"
+    volumes: !override
+      - ./deploy/Caddyfile.proxy:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config

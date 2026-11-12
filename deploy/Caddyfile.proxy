@@ -1,0 +1,26 @@
+# Used by docker-compose.proxy.yml: TLS is terminated by the front proxy.
+{
+	auto_https off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	encode zstd gzip
+
+	handle /rtc* {
+		reverse_proxy livekit:7880
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "geolocation=(self), microphone=(self), screen-wake-lock=(self)"
+		-Server
+	}
+}

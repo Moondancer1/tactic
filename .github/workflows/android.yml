@@ -1,0 +1,70 @@
+name: android-apk
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths: ['client/**', 'shared/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+    inputs:
+      default_server:
+        description: 'Server URL baked into the APK login screen (optional)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      # Repository variable (Settings > Variables) or manual input
+      VITE_DEFAULT_SERVER: ${{ github.event.inputs.default_server || vars.TACTIC_SERVER_URL }}
+      TACTIC_VERSION_CODE: ${{ github.run_number }}
+      TACTIC_VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('0.1.{0}', github.run_number) }}
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+      - run: npm run build -w client
+      - run: npx cap sync android
+        working-directory: client
+
+      - name: Decode release keystore
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/release.jks
+          echo "TACTIC_KEYSTORE=$RUNNER_TEMP/release.jks" >> $GITHUB_ENV
+
+      - name: Build APK
+        working-directory: client/android
+        env:
+          TACTIC_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          TACTIC_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          TACTIC_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          if [ -n "$TACTIC_KEYSTORE" ]; then ./gradlew --no-daemon assembleRelease; else ./gradlew --no-daemon assembleDebug; fi
+          mkdir -p $RUNNER_TEMP/out
+          find app/build/outputs/apk -name '*.apk' -exec cp {} $RUNNER_TEMP/out/tactic-${TACTIC_VERSION_NAME}.apk \;
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tactic-apk
+          path: ${{ runner.temp }}/out/*.apk
+
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/out/*.apk

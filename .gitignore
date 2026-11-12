@@ -1,0 +1,25 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+!.env.local.example
+data/
+*.sqlite
+*.sqlite-*
+.DS_Store
+.idea/
+.vscode/
+# Android build outputs (project sources in client/android are committed)
+client/android/.gradle/
+client/android/build/
+client/android/app/build/
+client/android/local.properties
+client/android/app/release/
+client/android/capacitor-cordova-android-plugins/build/
+*.keystore
+*.jks
+
+# APK build output
+apk/out/

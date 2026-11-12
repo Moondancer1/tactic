@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+.git
+.env
+data
+client/android/.gradle
+client/android/build
+client/android/app/build
+client/android/capacitor-cordova-android-plugins/build
+client/android/local.properties
+docs
+*.md
