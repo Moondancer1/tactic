@@ -196,6 +196,7 @@ const q = {
     'INSERT INTO users (id, callsign, password_hash, squad, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
   ),
   updateUserPrefs: db.prepare('UPDATE users SET squad = ?, role = ? WHERE id = ?'),
+  updateUserSquad: db.prepare('UPDATE users SET squad = ? WHERE id = ?'),
   updateUserPassword: db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?'),
   bumpTokenVersion: db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?'),
   deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
@@ -206,9 +207,8 @@ const q = {
   matchById: db.prepare('SELECT * FROM matches WHERE id = ?'),
   matchByCode: db.prepare('SELECT * FROM matches WHERE code = ? AND ended_at IS NULL'),
   activeMatches: db.prepare('SELECT * FROM matches WHERE ended_at IS NULL ORDER BY created_at ASC'),
-  latestActiveMatch: db.prepare('SELECT * FROM matches WHERE ended_at IS NULL ORDER BY created_at DESC LIMIT 1'),
   listMatches: db.prepare('SELECT * FROM matches ORDER BY created_at DESC LIMIT 100'),
-  endMatch: db.prepare('UPDATE matches SET ended_at = ? WHERE id = ?'),
+  endMatch: db.prepare('UPDATE matches SET ended_at = ? WHERE id = ? AND ended_at IS NULL'),
   setBriefing: db.prepare('UPDATE matches SET briefing = ? WHERE id = ?'),
   setMatchPin: db.prepare('UPDATE matches SET command_pin = ? WHERE id = ?'),
   setMatchPassword: db.prepare('UPDATE matches SET password = ? WHERE id = ?'),
@@ -293,6 +293,12 @@ async function hardenMatches() {
       console.warn(`[db] network "${m.name}": default command PIN replaced — see the admin panel for the new PIN`);
     }
   }
+  // Older builds auto-created / re-opened a password-less "Tactic Server" lobby: any account could join it.
+  const lobby = q.matchById.get('srv-main01') as Row | undefined;
+  if (lobby && lobby.ended_at == null && !lobby.password) {
+    q.endMatch.run(Date.now(), 'srv-main01');
+    console.warn('[db] open lobby "Tactic Server" (no password) closed — create networks with a password in the admin panel');
+  }
   // Ended networks keep history only; no one can join them, so their secrets just get scrubbed.
   db.exec(`UPDATE matches SET password = '' WHERE ended_at IS NOT NULL AND password <> '' AND password NOT LIKE '$s$%'`);
 }
@@ -316,8 +322,16 @@ export const store = {
     q.insertUser.run(u.id, u.callsign, await hashPassword(u.password), u.squad, u.role, Date.now());
     return this.userById(u.id)!;
   },
+  /** Admin-assigned defaults (squad and role) used when the fighter joins any network. */
   updateUserPrefs(userId: string, squad: Squad, role: Role) {
     q.updateUserPrefs.run(squad, role, userId);
+  },
+  /**
+   * In-game squad change remembered for next time. The role is NOT saved: a command role taken with
+   * one network's PIN must not follow the fighter into other networks.
+   */
+  updateUserSquad(userId: string, squad: Squad) {
+    q.updateUserSquad.run(squad, userId);
   },
   /** Also revokes every token the user holds. */
   async setUserPassword(userId: string, password: string) {
@@ -352,20 +366,12 @@ export const store = {
   activeMatches(): MatchRow[] {
     return (q.activeMatches.all() as Row[]).map(toMatch);
   },
-  /** Make sure at least one network exists on a fresh install (an open lobby with a random PIN). */
-  ensureLobby() {
-    if (q.latestActiveMatch.get()) return;
-    if (q.matchById.get('srv-main01')) {
-      q.endMatch.run(null, 'srv-main01');
-      return;
-    }
-    q.insertMatch.run('srv-main01', 'Tactic Server', 'SERVER', randomPin(), '', Date.now());
-  },
   listMatches(): MatchRow[] {
     return (q.listMatches.all() as Row[]).map(toMatch);
   },
-  endMatch(id: string, ts = Date.now()) {
-    q.endMatch.run(ts, id);
+  /** Ends a network once. Ending again keeps the original date (history retention counts from it). */
+  endMatch(id: string, ts = Date.now()): boolean {
+    return Number(q.endMatch.run(ts, id).changes) > 0;
   },
   setBriefing(id: string, b: Briefing) {
     q.setBriefing.run(JSON.stringify(b), id);

@@ -9,10 +9,15 @@ const BASE = process.argv[2] ?? 'http://127.0.0.1:3000';
 const ADMIN = process.env.ADMIN_AUTH ?? 'admin:admin';
 const sfx = Math.random().toString(36).slice(2, 6).toUpperCase();
 
-async function http(method, path, { token, body } = {}) {
+async function http(method, path, { token, body, ip } = {}) {
   const res = await fetch(BASE + path, {
     method,
-    headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: {
+      ...(body ? { 'content-type': 'application/json' } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      // Simulates distinct clients the way the server sees them behind Caddy / Cloudflare.
+      ...(ip ? { 'x-forwarded-for': ip } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -67,8 +72,8 @@ async function check(name, fn) {
 }
 
 // ---------- setup ----------
-const A = `RIFLE${sfx}`, B = `SCOUT${sfx}`, L = `LEAD${sfx}`;
-for (const [callsign, role] of [[A, 'rifleman'], [B, 'rifleman'], [L, 'leader']]) {
+const A = `RIFLE${sfx}`, B = `SCOUT${sfx}`, L = `LEAD${sfx}`, P = `PIN${sfx}`;
+for (const [callsign, role] of [[A, 'rifleman'], [B, 'rifleman'], [L, 'leader'], [P, 'rifleman']]) {
   assert.equal((await admin('POST', '/api/admin/users', { callsign, password: 'secret-pw', squad: 'alpha', role })).status, 201);
 }
 const t1 = (await admin('POST', '/api/admin/matches', { name: `T1-${sfx}`, password: 'team-one' })).body;
@@ -178,6 +183,39 @@ await check('movement tracks (replay) are for commanders of the own network only
   assert.ok(res.body[sA.self.id]?.points.length >= 1, 'rifleman track recorded');
 });
 
+await check("a command role unlocked with one network's PIN does not follow the fighter elsewhere", async () => {
+  const tk = await ticket(P);
+  const s1 = (await join(tk, t1.id, 'team-one')).body;
+  const ws = connect(s1.token);
+  await ws.wait((m) => m.t === 'snapshot');
+  await ws.send({ t: 'squad.set', squad: 'command', role: 'commander', pin: t1.commandPin });
+  await ws.wait((m) => m.t === 'self' && m.self.role === 'commander');
+  ws.close();
+  const s2 = (await join(tk, t2.id, 'team-two')).body;
+  assert.equal(s2.self.role, 'rifleman', 'joins another network with the admin-assigned role');
+  const acc = (await admin('GET', '/api/admin/users')).body.find((u) => u.callsign === P);
+  assert.equal(acc.role, 'rifleman', 'account role unchanged');
+});
+
+await check('lockouts hit the guessing address only, never the real fighter or admin', async () => {
+  const attacker = '203.0.113.66', fighter = '198.51.100.7';
+  for (let i = 0; i < 10; i++) await http('POST', '/api/auth/verify', { body: { callsign: A, password: 'wrong-pw' }, ip: attacker });
+  assert.equal((await http('POST', '/api/auth/verify', { body: { callsign: A, password: 'secret-pw' }, ip: attacker })).status, 429);
+  assert.equal((await http('POST', '/api/auth/verify', { body: { callsign: A, password: 'secret-pw' }, ip: fighter })).status, 200);
+  for (let i = 0; i < 10; i++) await http('GET', '/api/admin/users', { token: 'admin:guess' + i, ip: attacker });
+  assert.equal((await http('GET', '/api/admin/users', { token: ADMIN, ip: attacker })).status, 429, 'guessing address locked');
+  assert.equal((await admin('GET', '/api/admin/users')).status, 200, 'admin from another address unaffected');
+});
+
+await check('a GPS fix sent after leaving the network does not bring the fighter back', async () => {
+  const s = (await join(await ticket(P), t1.id, 'team-one')).body;
+  assert.equal((await http('POST', '/api/leave', { token: s.token })).status, 200);
+  const fix = [{ lat: 40.41, lon: 49.81, acc: 5, ts: Date.now() }];
+  assert.equal((await http('POST', '/api/telemetry', { token: s.token, body: fix })).status, 410);
+  await sleep(300);
+  assert.ok(!wsL.frames.some((m) => m.t === 'players' && m.players.some((p) => p.id === s.self.id && p.lat === 40.41)));
+});
+
 await check('kick revokes socket, session token and ticket', async () => {
   assert.equal((await admin('POST', `/api/admin/users/${A}/kick`)).status, 200);
   assert.equal(await wsA.closed(), 4003);
@@ -197,6 +235,6 @@ await check('token of an ended network is never moved into another network', asy
 
 wsL.close();
 await admin('POST', `/api/admin/matches/${t2.id}/end`);
-for (const cs of [A, B, L]) await admin('DELETE', `/api/admin/users/${cs}`);
+for (const cs of [A, B, L, P]) await admin('DELETE', `/api/admin/users/${cs}`);
 console.log(`all ${passed} checks passed`);
 process.exit(0);

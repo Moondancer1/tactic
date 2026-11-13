@@ -382,10 +382,11 @@ Döyüşçülər avtomatik yenidən qoşulur. Yeniləmə zamanı verilənlər ba
 
 Tactic **rəqibin də telefonu, hesabı və gizlicə baxmaq istəyi ola bilər** fərziyyəsi ilə layihələndirilib.
 
-- **Komandaların təcrid olunması.** Bir şəbəkənin xəritəsi, nişanları və çatı digərindən əlçatan deyil. Şəbəkələr siyahısı yalnız daxil olduqdan sonra görünür, şəbəkə kodları açıqlanmır, şəbəkə parolu məcburidir.
+- **Komandaların təcrid olunması.** Bir şəbəkənin xəritəsi, nişanları və çatı digərindən əlçatan deyil. Şəbəkələr siyahısı yalnız daxil olduqdan sonra görünür, şəbəkə kodları açıqlanmır, şəbəkə parolu məcburidir. Server özü açıq şəbəkə yaratmır, köhnə açıq «Tactic Server» şəbəkəsini isə işə düşəndə bağlayır.
+- **Komandir PIN-i yalnız öz şəbəkəsində işləyir.** PIN ilə alınan rol hesaba yazılmır və başqa şəbəkələrə keçmir. Administratorun döyüşçü kartında verdiyi rol isə hər yerdə işləyir.
 - **Parollar telefonda saxlanılmır.** Daxil olduqdan sonra tətbiq yalnız ləğv edilə bilən bileti saxlayır.
 - **Girişin dərhal ləğvi.** Döyüşçünün çıxarılması, silinməsi və ya parolunun dəyişdirilməsi onun bütün sessiyalarını, o cümlədən fonda GPS göndərilməsini dərhal kəsir.
-- **Parol seçməyə qarşı qoruma.** Məhdudiyyətlər IP-yə görə deyil, hesaba görə hesablanır (tunel arxasında hamının IP-si eynidir): 15 dəqiqədə 10 giriş cəhdi, şəbəkə parolu üçün 8 cəhd və PIN üçün 5 cəhd.
+- **Parol seçməyə qarşı qoruma.** Giriş: 10 səhv parol «çağırış işarəsi + ünvan» cütünü 15 dəqiqəlik bloklayır — başqasının cəhdləri əsl döyüşçünün girişini bağlaya bilməz. Şəbəkə parolu — 8 cəhd, komandir PIN-i — döyüşçü başına 5 cəhd. Admin paneli — 10 səhv giriş həmin ünvanı 15 dəqiqəlik bloklayır, başqa ünvandakı admina isə təsir etmir.
 - **Dürüst mövqelər.** Vaxtı server qoyur; 40 m/s-dən sürətli «teleportlar» və qeyri-dəqiq ölçmələr atılır.
 - **Başqasının nişanlarına toxunmaq olmaz.** Nişanı yalnız onun müəllifi və ya komandir dəyişə və silə bilər.
 - **Veb-klientin qorunması.** CSP siyasəti tətbiqin öz fayllarından başqa heç bir skriptin icrasına icazə vermir.

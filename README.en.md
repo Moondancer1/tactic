@@ -382,10 +382,11 @@ Players reconnect automatically. The database is kept during updates and migrate
 
 Tactic is designed on the assumption that **the other team may also have a phone, an account and the urge to peek**.
 
-- **Team isolation.** One network's map, markers and chat are not accessible from another. The network list is shown only after signing in, network codes are never exposed, and a network password is mandatory.
+- **Team isolation.** One network's map, markers and chat are not accessible from another. The network list is shown only after signing in, network codes are never exposed, and a network password is mandatory. The server never creates open networks itself and closes the legacy open "Tactic Server" network on startup.
+- **A command PIN works only in its own network.** A role unlocked with a PIN is not saved to the account and does not carry over to other networks. A role assigned by the administrator on the player's account works everywhere.
 - **No passwords on the phone.** After signing in, the app keeps only a revocable ticket.
 - **Instant revocation.** Kicking, deleting or changing a player's password ends all their sessions at once, including background GPS uploads.
-- **Brute-force protection.** Limits are counted per account, not per IP (behind a tunnel everyone shares one IP): 10 sign-in attempts, 8 network-password attempts and 5 PIN attempts per 15 minutes.
+- **Brute-force protection.** Sign-in: 10 wrong passwords lock the "callsign + address" pair for 15 minutes, so someone else's attempts cannot lock the real player out. Network password: 8 attempts; command PIN: 5 attempts per player. Admin panel: 10 failed sign-ins lock that address for 15 minutes without affecting the admin on another address.
 - **Honest positions.** The server sets the time; "teleports" faster than 40 m/s and inaccurate fixes are dropped.
 - **Other people's markers stay untouched.** Only the author or a commander can change or delete a marker.
 - **Web client protection.** A Content Security Policy blocks every script except the app's own files.

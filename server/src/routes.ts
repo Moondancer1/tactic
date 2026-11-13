@@ -22,6 +22,7 @@ import {
 import { adminConfigured, bearer, isAdmin, issueTicket, issueToken, verifyTicket, verifyToken } from './auth.js';
 import { randomPin, store, verifyMatchPassword, verifyPassword, type MatchRow, type UserRow } from './db.js';
 import { Denied, type Hub, type Self } from './hub.js';
+import { clientIp } from './net.js';
 
 const matchCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
 
@@ -53,7 +54,13 @@ class Lockout {
     this.m.delete(key);
   }
 }
+/**
+ * Keyed by callsign + client address: someone else's wrong guesses lock only *their* address out of
+ * that account, never the real fighter (who logs in from another address) on game day.
+ */
 const loginLock = new Lockout(10, 15 * 60_000, 15 * 60_000);
+/** Admin credentials: 10 failures lock the guessing address for 15 minutes. */
+const adminLock = new Lockout(10, 15 * 60_000, 15 * 60_000);
 const netPassLock = new Lockout(8, 15 * 60_000, 15 * 60_000);
 
 const BAD_LOGIN = 'Неверный позывной или пароль';
@@ -100,7 +107,17 @@ function requireAdmin(req: FastifyRequest, reply: FastifyReply): boolean {
     fail(reply, 503, 'admin_disabled', 'Админ-панель отключена: на сервере не задан ADMIN_PASSWORD');
     return false;
   }
-  if (isAdmin(req.headers.authorization)) return true;
+  const key = clientIp(req);
+  const wait = adminLock.locked(key);
+  if (wait) {
+    fail(reply, 429, 'rate_limited', `Слишком много неверных входов в админ-панель — подождите ${wait} мин`);
+    return false;
+  }
+  if (isAdmin(req.headers.authorization)) {
+    adminLock.ok(key);
+    return true;
+  }
+  adminLock.fail(key);
   fail(reply, 401, 'admin_unauthorized', 'Неверный логин или пароль администратора');
   return false;
 }
@@ -250,7 +267,7 @@ export function registerRoutes(app: FastifyInstance, hub: Hub) {
     const body = AuthVerifySchema.safeParse(req.body);
     if (!body.success) return fail(reply, 401, 'unauthorized', BAD_LOGIN);
     const { callsign, password } = body.data;
-    const key = callsign.toUpperCase();
+    const key = `${callsign.toUpperCase()}|${clientIp(req)}`;
     const wait = loginLock.locked(key);
     if (wait) return fail(reply, 429, 'rate_limited', `Слишком много неудачных попыток — подождите ${wait} мин`);
 
@@ -316,6 +333,8 @@ export function registerRoutes(app: FastifyInstance, hub: Hub) {
   app.post('/api/telemetry', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
     const self = await member(req, reply);
     if (!self) return;
+    // Left the network (or was removed): 410 makes the phone's background service stop uploading.
+    if (!store.isMember(self.matchId, self.id)) return fail(reply, 410, 'match_ended', 'Вы вышли из этой сети');
     const batch = z.array(PosSchema).max(50).safeParse(Array.isArray(req.body) ? req.body : [req.body]);
     if (!batch.success || batch.data.length === 0) return fail(reply, 400, 'bad_request', 'Некорректные координаты');
     // Device clocks are not trusted: fixes are placed on the server clock, keeping only their spacing.

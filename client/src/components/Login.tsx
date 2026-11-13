@@ -386,7 +386,9 @@ function AdminPanel({ server }: { server: string }) {
     if (!tok || tok === ':') return;
     setErr('');
     try {
-      const [u, m] = await Promise.all([api.adminListUsers(server, tok), api.adminListMatches(server, tok)]);
+      // Sequential: a wrong password must count as one failed attempt, not two (server-side lockout).
+      const u = await api.adminListUsers(server, tok);
+      const m = await api.adminListMatches(server, tok);
       setUsers(u);
       setMatches(m.filter((x) => x.active));
       setEnded(m.filter((x) => !x.active).slice(0, 15));

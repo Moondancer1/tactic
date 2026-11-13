@@ -184,7 +184,8 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
       </div>
       <div className="row">
         {self && self.squad !== 'none' && (
-          <button onClick={() => socket.send({ t: 'squad.set', squad: 'none', role: 'rifleman' })}>
+          // A squad leader without a squad is a rifleman; a Commander keeps the role (sees every squad's chat).
+          <button onClick={() => socket.send({ t: 'squad.set', squad: 'none', role: self.role === 'leader' ? 'rifleman' : self.role })}>
             ВЫЙТИ ИЗ ОТРЯДА
           </button>
         )}

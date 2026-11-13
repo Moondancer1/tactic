@@ -85,6 +85,8 @@ const MAX_SPEED_MS = 40;
 const MAX_ACC_M = 1000;
 /** PTT floor: another talker on the same net within this window = channel busy. */
 const FLOOR_HOLD_MS = 1500;
+/** Largest accepted voice frame, bytes (normal: 642). */
+const MAX_AUDIO_FRAME = 2048;
 
 class MatchRoom {
   conns = new Set<Conn>();
@@ -118,7 +120,6 @@ export class Hub {
   constructor(private bus: Bus) {}
 
   async start(log: (m: string) => void) {
-    store.ensureLobby();
     await this.bus.start((env) => this.deliver(env), log);
     this.timers.push(setInterval(() => this.flush(), config.flushMs));
     this.timers.push(setInterval(() => this.heartbeat(), 20_000));
@@ -261,7 +262,8 @@ export class Hub {
 
   onAudio(self: Self, raw: Buffer) {
     // Frame format: [0x56 ('V'), channelIdx (0=squad, 1=platoon, 2=command), ...ulawBytes]
-    if (raw.length < 4 || raw.length > 8192 || raw[0] !== 0x56) return;
+    // A real frame is 2 + 640 bytes (40 ms of µ-law); anything far larger is channel flooding.
+    if (raw.length < 4 || raw.length > MAX_AUDIO_FRAME || raw[0] !== 0x56) return;
     const channel = VOICE_CHANNELS[raw[1]!];
     if (!channel) return;
     if (!voiceChannelsFor(self.squad, self.role).includes(channel)) return;
@@ -337,7 +339,8 @@ export class Hub {
           }
         }
         store.updateMember(self.id, nextSquad, nextRole);
-        store.updateUserPrefs(self.userId, nextSquad, nextRole);
+        // Only the squad is remembered on the account: a role unlocked with this network's PIN stays here.
+        store.updateUserSquad(self.userId, nextSquad);
         const p = room.players.get(self.id);
         if (p) {
           p.squad = nextSquad;
@@ -518,6 +521,8 @@ export class Hub {
     if (pos.acc > MAX_ACC_M) return;
     if (Math.abs(pos.lat) < 1e-6 && Math.abs(pos.lon) < 1e-6) return; // "null island": no fix
     const room = await this.room(self.matchId);
+    // A fix that arrives after the member left (or was removed) must not resurrect them on everyone's map.
+    if (!room.players.has(self.id) && !store.isMember(self.matchId, self.id)) return;
     const p = room.players.get(self.id) ?? this.blankPlayer(self);
     if (p.lat != null && p.lon != null && p.ts > 0) {
       const dt = (rxTs - p.ts) / 1000;
@@ -570,8 +575,7 @@ export class Hub {
 
   endMatch(matchId: string) {
     const endedAt = Date.now();
-    store.endMatch(matchId, endedAt);
-    this.bus.publish(matchId, { t: 'match.end', endedAt });
+    if (store.endMatch(matchId, endedAt)) this.bus.publish(matchId, { t: 'match.end', endedAt });
   }
 
   // ---------- outbound ----------

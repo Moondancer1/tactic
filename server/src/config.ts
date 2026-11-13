@@ -12,7 +12,8 @@ const isProd = process.env.NODE_ENV === 'production';
 export const config = {
   isProd,
   port: Number(env('PORT', '3000')),
-  host: env('HOST', '0.0.0.0'),
+  // Dev mode (default admin:admin) listens on loopback only; containers set NODE_ENV=production.
+  host: env('HOST', isProd ? '0.0.0.0' : '127.0.0.1'),
   dataDir: path.resolve(env('DATA_DIR', './data')),
   jwtSecret: env('JWT_SECRET', isProd ? undefined : 'dev-insecure-jwt-secret-change-me-0000000000'),
   /** Admin panel login. In production there is NO default password: set ADMIN_PASSWORD in .env. */
