@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the Tactic mark (client/public/icon.svg geometry). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="15.6" android:translateY="15.6" android:scaleX="0.15" android:scaleY="0.15">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M319.07 91.69A176 176 0 0 1 420.31 192.93L390.44 204.4A144 144 0 0 0 307.6 121.56ZM420.31 319.07A176 176 0 0 1 319.07 420.31L307.6 390.44A144 144 0 0 0 390.44 307.6ZM192.93 420.31A176 176 0 0 1 91.69 319.07L121.56 307.6A144 144 0 0 0 204.4 390.44ZM91.69 192.93A176 176 0 0 1 192.93 91.69L204.4 121.56A144 144 0 0 0 121.56 204.4ZM380 270L456 270A14 14 0 0 0 456 242L380 242A14 14 0 0 0 380 270ZM242 380L242 456A14 14 0 0 0 270 456L270 380A14 14 0 0 0 242 380ZM132 242L56 242A14 14 0 0 0 56 270L132 270A14 14 0 0 0 132 242ZM270 132L270 56A14 14 0 0 0 242 56L242 132A14 14 0 0 0 270 132ZM256 162L328 336L256 298L184 336Z" />
+    </group>
+</vector>

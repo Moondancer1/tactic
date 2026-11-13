@@ -53,6 +53,12 @@ h4 { margin: 18px 0 8px; color: var(--dim); font-size: .8rem; letter-spacing: .1
 .login-card h1 { margin: 0 0 8px; font-size: 1.6rem; }
 .login-card h1 .brand { color: var(--acc); letter-spacing: .2em; }
 .login-card h1 small { color: var(--dim); font-size: .8rem; letter-spacing: .2em; }
+.login-card h1 .brand-mark { width: 26px; height: 26px; vertical-align: -5px; margin-right: 8px; }
+.hero { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 4px 0 14px; text-align: center; }
+.hero-mark { width: 88px; height: 88px; }
+.hero h1 { margin: 6px 0 0; font-size: 1.9rem; }
+.hero h1 .brand { letter-spacing: .32em; padding-left: .32em; }
+.hero small { color: var(--dim); font-size: .72rem; letter-spacing: .24em; }
 .login-card label, .field { display: flex; flex-direction: column; gap: 4px; color: var(--dim); font-size: .8rem; letter-spacing: .08em; }
 .login-card .primary { background: var(--acc); color: #0b0f0c; min-height: 54px; font-size: 1.1rem; }
 .err { color: var(--red); }
@@ -72,6 +78,11 @@ h4 { margin: 18px 0 8px; color: var(--dim); font-size: .8rem; letter-spacing: .1
 .topbar .hdg small { color: var(--dim); }
 .topbar .mode { min-height: 28px; padding: 2px 8px; font-size: .72rem; flex-shrink: 0; }
 .topbar .mode.combat { background: var(--red); border-color: var(--red); color: #fff; }
+/* online counter: green = everyone connected, amber = someone dropped, grey = nobody */
+.topbar .mode.online { background: transparent; }
+.topbar .mode.online.all { border-color: var(--acc); color: var(--acc); }
+.topbar .mode.online.part { border-color: var(--warn); color: var(--warn); }
+.topbar .mode.online.none { border-color: var(--line); color: var(--dim); }
 .topbar .exit-btn { min-height: 28px; padding: 2px 8px; font-size: .72rem; flex-shrink: 0; }
 .topbar .online-lbl { display: inline; }
 @media (max-width: 440px) {

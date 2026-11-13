@@ -49,7 +49,7 @@ export function TopBar({
         <span className="spacer" />
         <button
           type="button"
-          className="mode combat"
+          className={`mode online ${totalCount === 0 || onlineCount === 0 ? 'none' : onlineCount < totalCount ? 'part' : 'all'}`}
           onClick={() => setDrawer({ open: 'mid', tab: 'team' })}
           title="Кто в сети / список зашедших бойцов"
         >

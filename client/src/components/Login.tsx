@@ -123,6 +123,7 @@ export function Login({
         <div className="login-card">
           <div className="row" style={{ margin: 0 }}>
             <h1 style={{ margin: 0 }}>
+              <img src="/mark.svg" alt="" className="brand-mark" width="26" height="26" />
               <span className="brand">TACTIC</span> <small>АДМИН-ПАНЕЛЬ</small>
             </h1>
             <span className="spacer" />
@@ -142,6 +143,7 @@ export function Login({
         <div className="login-card" style={{ gap: 12 }}>
           <div className="row" style={{ margin: 0 }}>
             <h1 style={{ margin: 0 }}>
+              <img src="/mark.svg" alt="" className="brand-mark" width="26" height="26" />
               <span className="brand">TACTIC</span> <small>ВЫБОР СЕТИ</small>
             </h1>
             <span className="spacer" />
@@ -302,9 +304,13 @@ export function Login({
   return (
     <div className="login">
       <form className="login-card" onSubmit={submitAuth}>
-        <h1>
-          <span className="brand">TACTIC</span> <small>C2 / INTERCOM</small>
-        </h1>
+        <div className="hero">
+          <img src="/mark.svg" alt="" className="hero-mark" width="88" height="88" />
+          <h1>
+            <span className="brand">TACTIC</span>
+          </h1>
+          <small>КАРТА И РАЦИЯ КОМАНДЫ</small>
+        </div>
 
         {showServer ? (
           <label>
